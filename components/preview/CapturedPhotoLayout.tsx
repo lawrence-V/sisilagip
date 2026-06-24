@@ -45,6 +45,7 @@ const styles = StyleSheet.create({
     minHeight: 0,
     flexGrow: 1,
     backgroundColor: COLORS.surfaceContainerHigh,
+    filter: [{ grayscale: 1 }, { contrast: 1.18 }],
   },
   oneColumn: {
     flex: 1,

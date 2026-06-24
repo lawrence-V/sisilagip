@@ -6,9 +6,18 @@ import { AppHeader } from '@/components/AppHeader';
 import { CapturedPhotoLayout } from '@/components/preview/CapturedPhotoLayout';
 import { PreviewActionButton } from '@/components/preview/PreviewActionButton';
 import { PreviewFooterAction } from '@/components/preview/PreviewFooterAction';
+import { ReceiptBarcode } from '@/components/preview/ReceiptBarcode';
+import { ReceiptDetailRow } from '@/components/preview/ReceiptDetailRow';
 import { APP_BRAND_NAME, APP_NAME } from '@/constants/app';
 import { getPhotoLayout } from '@/constants/photoLayouts';
-import { COLORS, RADII, SHADOWS, SPACING, TYPOGRAPHY } from '@/constants/theme';
+import {
+  COLORS,
+  FONT_FAMILIES,
+  RADII,
+  SHADOWS,
+  SPACING,
+  TYPOGRAPHY,
+} from '@/constants/theme';
 
 function parsePhotoUris(serializedPhotoUris: string | undefined) {
   if (!serializedPhotoUris) {
@@ -31,6 +40,16 @@ function parsePhotoUris(serializedPhotoUris: string | undefined) {
   return [];
 }
 
+function formatReceiptDate() {
+  return new Intl.DateTimeFormat('en-US', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+    .format(new Date())
+    .toUpperCase();
+}
+
 export default function PhotoPreviewScreen() {
   const { layoutId, photoUri, photoUris } = useLocalSearchParams<{
     layoutId?: string | string[];
@@ -48,6 +67,13 @@ export default function PhotoPreviewScreen() {
   const capturedPhotoUris =
     parsedPhotoUris.length > 0 ? parsedPhotoUris : legacyPhotoUri ? [legacyPhotoUri] : [];
 
+  const openCamera = () => {
+    router.replace({
+      pathname: '/camera',
+      params: { layoutId: selectedLayout.id },
+    });
+  };
+
   const sharePhoto = async () => {
     if (capturedPhotoUris.length === 0) {
       return;
@@ -59,12 +85,12 @@ export default function PhotoPreviewScreen() {
     });
   };
 
-  const showTemplateNotice = () => {
-    Alert.alert('Templates', 'Template selection will be added in the next screen.');
+  const showEditNotice = () => {
+    Alert.alert('Receipt details', 'Group-name editing will be added with the print settings.');
   };
 
   const showPrinterNotice = () => {
-    Alert.alert('Printer not connected', 'Connect a printer before printing this photo.');
+    Alert.alert('Printer not connected', 'Connect a thermal printer before printing this receipt.');
   };
 
   if (capturedPhotoUris.length === 0) {
@@ -79,12 +105,7 @@ export default function PhotoPreviewScreen() {
         <PreviewActionButton
           icon="camera.fill"
           label="Open Camera"
-          onPress={() =>
-            router.replace({
-              pathname: '/camera',
-              params: { layoutId: selectedLayout.id },
-            })
-          }
+          onPress={openCamera}
           variant="primary"
         />
       </View>
@@ -105,60 +126,80 @@ export default function PhotoPreviewScreen() {
       <AppHeader />
 
       <View style={[styles.content, !isTablet && styles.mobileContent]}>
-        <View style={styles.previewColumn}>
-          <View style={[styles.printCard, !isTablet && styles.mobilePrintCard]}>
-            <CapturedPhotoLayout
-              columns={selectedLayout.columns}
-              photoUris={capturedPhotoUris}
-            />
-            <View style={styles.printLabel}>
-              <Text selectable style={styles.printLabelText}>
-                {APP_NAME.toUpperCase()} MOMENTS
-              </Text>
+        <View style={styles.receipt}>
+          <View style={styles.receiptHeader}>
+            <Text selectable style={styles.receiptBrand}>
+              {APP_NAME.toUpperCase()}
+            </Text>
+            <View style={styles.shortDivider} />
+            <Text selectable style={styles.receiptTagline}>
+              MEMORIES IN A SNAP
+            </Text>
+          </View>
+
+          <View style={styles.photoArea}>
+            <View style={styles.photoPrint}>
+              <CapturedPhotoLayout
+                columns={selectedLayout.columns}
+                photoUris={capturedPhotoUris}
+              />
             </View>
           </View>
-          <Text selectable style={styles.caption}>
-            &quot;This is how your print will look&quot;
-          </Text>
+
+          <View style={styles.dashedDivider} />
+
+          <View style={styles.receiptDetails}>
+            <ReceiptDetailRow label="GROUP:" value="FRIENDS & FAMILY" />
+            <ReceiptDetailRow label="DATE:" value={formatReceiptDate()} />
+            <ReceiptDetailRow label="LAYOUT:" value={selectedLayout.name.toUpperCase()} />
+            <ReceiptDetailRow label="PHOTOS:" value={String(capturedPhotoUris.length).padStart(2, '0')} />
+          </View>
+
+          <View style={styles.thankYou}>
+            <Text selectable style={styles.thankYouTitle}>
+              THANK YOU!
+            </Text>
+            <Text selectable style={styles.thankYouMessage}>
+              KEEP THIS MEMORY FOREVER
+            </Text>
+          </View>
+
+          <ReceiptBarcode />
         </View>
 
         <View style={styles.actionColumn}>
+          <View style={styles.intro}>
+            <Text selectable style={styles.title}>
+              Looking good!
+            </Text>
+            <Text selectable style={styles.description}>
+              Review your black-and-white receipt before printing. You can still retake the photos
+              or change the layout.
+            </Text>
+          </View>
+
           <View style={styles.actions}>
             <PreviewActionButton
-              icon="camera.fill"
-              label="Retake"
-              onPress={() =>
-                router.replace({
-                  pathname: '/camera',
-                  params: { layoutId: selectedLayout.id },
-                })
-              }
+              icon="pencil"
+              label="Edit Details"
+              onPress={showEditNotice}
               variant="outline"
             />
             <PreviewActionButton
-              icon="paintpalette.fill"
-              label="Choose Template"
-              onPress={showTemplateNotice}
-              variant="secondary"
-            />
-            <PreviewActionButton
               icon="printer.fill"
-              label="Print Now"
+              label="Print This!"
               onPress={showPrinterNotice}
               variant="primary"
             />
           </View>
 
-          <View style={styles.queueCard}>
-            <Text selectable style={styles.queueTitle}>
-              Queue Status
+          <View style={styles.infoCard}>
+            <Text selectable style={styles.infoIcon}>
+              ⓘ
             </Text>
-            <View style={styles.queueStatus}>
-              <View style={styles.statusDot} />
-              <Text selectable style={styles.queueMessage}>
-                Waiting for a printer connection...
-              </Text>
-            </View>
+            <Text selectable style={styles.infoText}>
+              The receipt preview uses a thermal-style black-and-white finish.
+            </Text>
           </View>
         </View>
       </View>
@@ -168,12 +209,7 @@ export default function PhotoPreviewScreen() {
           <PreviewFooterAction
             icon="arrow.clockwise"
             label="Retake"
-            onPress={() =>
-              router.replace({
-                pathname: '/camera',
-                params: { layoutId: selectedLayout.id },
-              })
-            }
+            onPress={openCamera}
           />
           <PreviewFooterAction
             active
@@ -187,10 +223,6 @@ export default function PhotoPreviewScreen() {
             onPress={sharePhoto}
           />
         </View>
-
-        <Text selectable style={[styles.photoDetails, !isTablet && styles.mobilePhotoDetails]}>
-          Photo #0001 · {APP_BRAND_NAME}
-        </Text>
       </View>
     </ScrollView>
   );
@@ -221,105 +253,134 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     justifyContent: 'flex-start',
   },
-  previewColumn: {
-    flex: 1,
-    alignItems: 'center',
+  receipt: {
+    width: 390,
+    minHeight: 720,
     gap: SPACING.md,
-  },
-  printCard: {
-    width: 460,
-    height: 620,
-    gap: SPACING.sm,
-    padding: SPACING.md,
+    padding: SPACING.lg,
     backgroundColor: COLORS.surfaceContainerLowest,
-    transform: [{ rotate: '-1deg' }],
-    ...SHADOWS.previewPrint,
+    borderWidth: 1,
+    borderColor: COLORS.surfaceContainerHigh,
+    ...SHADOWS.receipt,
   },
-  mobilePrintCard: {
-    width: 320,
-    height: 430,
+  receiptHeader: {
+    alignItems: 'center',
+    gap: SPACING.xs,
   },
-  printLabel: {
-    minHeight: 38,
+  receiptBrand: {
+    ...TYPOGRAPHY.headlineMedium,
+    color: COLORS.onSurface,
+    fontFamily: FONT_FAMILIES.mono,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+  },
+  shortDivider: {
+    width: 140,
+    height: 1,
+    backgroundColor: COLORS.surfaceContainerHighest,
+  },
+  receiptTagline: {
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.onSurfaceVariant,
+    fontFamily: FONT_FAMILIES.mono,
+    fontSize: 13,
+    letterSpacing: 1,
+  },
+  photoArea: {
+    minHeight: 360,
     alignItems: 'center',
     justifyContent: 'center',
+    padding: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.surfaceContainerLow,
   },
-  printLabelText: {
-    ...TYPOGRAPHY.labelLarge,
-    color: COLORS.outline,
-    fontStyle: 'italic',
-    letterSpacing: 1.5,
+  photoPrint: {
+    width: '82%',
+    height: 300,
+    padding: SPACING.sm,
+    backgroundColor: COLORS.surfaceContainerLowest,
+    transform: [{ rotate: '-3deg' }],
+    ...SHADOWS.previewPrint,
   },
-  caption: {
+  dashedDivider: {
+    height: 1,
+    borderTopWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: COLORS.outlineVariant,
+  },
+  receiptDetails: {
+    gap: SPACING.xs,
+  },
+  thankYou: {
+    alignItems: 'center',
+    gap: SPACING.xs,
+    paddingVertical: SPACING.sm,
+  },
+  thankYouTitle: {
     ...TYPOGRAPHY.headlineMedium,
-    color: COLORS.onSurfaceVariant,
-    fontStyle: 'italic',
-    textAlign: 'center',
+    color: COLORS.onSurface,
+    fontFamily: FONT_FAMILIES.mono,
+    letterSpacing: 3,
+  },
+  thankYouMessage: {
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.outline,
+    fontFamily: FONT_FAMILIES.mono,
+    fontSize: 12,
   },
   actionColumn: {
     width: '100%',
-    maxWidth: 400,
-    gap: SPACING.xxl,
+    maxWidth: 410,
+    gap: SPACING.xl,
+  },
+  intro: {
+    gap: SPACING.sm,
+  },
+  title: {
+    ...TYPOGRAPHY.headlineLarge,
+    color: COLORS.primary,
+  },
+  description: {
+    ...TYPOGRAPHY.bodyLarge,
+    color: COLORS.onSurfaceVariant,
   },
   actions: {
     gap: SPACING.sm,
   },
-  queueCard: {
-    gap: SPACING.sm,
-    padding: SPACING.md,
-    backgroundColor: COLORS.surfaceContainerLowest,
-    borderWidth: 1,
-    borderColor: COLORS.surfaceContainerHigh,
-    borderRadius: RADII.large,
-    borderCurve: 'continuous',
-    ...SHADOWS.card,
-  },
-  queueTitle: {
-    ...TYPOGRAPHY.labelLarge,
-    color: COLORS.primary,
-  },
-  queueStatus: {
+  infoCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.sm,
+    padding: SPACING.md,
+    backgroundColor: COLORS.secondaryFixed,
+    borderWidth: 1,
+    borderColor: COLORS.secondaryFixedDim,
+    borderRadius: RADII.medium,
+    borderCurve: 'continuous',
   },
-  statusDot: {
-    width: 12,
-    height: 12,
-    backgroundColor: COLORS.secondary,
-    borderRadius: RADII.full,
+  infoIcon: {
+    ...TYPOGRAPHY.headlineMedium,
+    color: COLORS.secondary,
   },
-  queueMessage: {
+  infoText: {
     ...TYPOGRAPHY.bodyMedium,
     flex: 1,
-    color: COLORS.onSurfaceVariant,
+    color: COLORS.onSecondaryFixedVariant,
   },
   footer: {
     width: '100%',
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    gap: SPACING.lg,
+    alignItems: 'center',
   },
   mobileFooter: {
-    alignItems: 'center',
-    flexDirection: 'column',
+    paddingBottom: SPACING.md,
   },
   footerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'center',
     padding: SPACING.xs,
     backgroundColor: COLORS.surfaceContainerLowest,
     borderRadius: RADII.full,
     ...SHADOWS.card,
-  },
-  photoDetails: {
-    ...TYPOGRAPHY.bodyMedium,
-    color: COLORS.outline,
-  },
-  mobilePhotoDetails: {
-    textAlign: 'center',
   },
   missingPhoto: {
     flex: 1,

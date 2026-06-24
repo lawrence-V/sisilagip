@@ -29,6 +29,8 @@ const MAPPING = {
   'arrow.clockwise': 'refresh',
   'checkmark.circle.fill': 'check-circle',
   'square.and.arrow.up': 'share',
+  pencil: 'edit',
+  'info.circle': 'info-outline',
 } as IconMapping;
 
 /**

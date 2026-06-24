@@ -6,7 +6,7 @@ import { COLORS, RADII, SHADOWS, SPACING, TYPOGRAPHY } from '@/constants/theme';
 type PreviewActionButtonVariant = 'outline' | 'primary' | 'secondary';
 
 type PreviewActionButtonProps = {
-  icon: 'camera.fill' | 'paintpalette.fill' | 'printer.fill';
+  icon: 'camera.fill' | 'paintpalette.fill' | 'pencil' | 'printer.fill';
   label: string;
   onPress: () => void;
   variant: PreviewActionButtonVariant;

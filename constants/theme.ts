@@ -82,6 +82,7 @@ export const FONT_FAMILIES = {
   regular: 'NunitoSans_400Regular',
   bold: 'NunitoSans_700Bold',
   extraBold: 'NunitoSans_800ExtraBold',
+  mono: 'monospace',
 } as const;
 
 export const TYPOGRAPHY = {
@@ -177,11 +178,14 @@ export const SHADOWS = {
   layoutSelected: {
     boxShadow: '0 16px 34px rgba(150, 66, 97, 0.18)',
   },
+  receipt: {
+    boxShadow: '0 12px 28px rgba(26, 28, 28, 0.12)',
+  },
 } satisfies Record<string, ViewStyle>;
 
 export const Fonts = {
   sans: FONT_FAMILIES.regular,
   serif: FONT_FAMILIES.regular,
   rounded: FONT_FAMILIES.regular,
-  mono: 'monospace',
+  mono: FONT_FAMILIES.mono,
 } as const;
