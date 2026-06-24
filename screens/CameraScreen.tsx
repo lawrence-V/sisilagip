@@ -1,14 +1,16 @@
 import { CameraType, CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeInDown, FadeOutUp } from 'react-native-reanimated';
 
 import { CameraControlButton } from '@/components/camera/CameraControlButton';
 import { CameraShutterButton } from '@/components/camera/CameraShutterButton';
 import { APP_BRAND_NAME } from '@/constants/app';
+import { getPhotoLayout } from '@/constants/photoLayouts';
 import { COLORS, RADII, SPACING, TYPOGRAPHY } from '@/constants/theme';
 
 const COUNTDOWN_SECONDS = [3, 2, 1] as const;
@@ -20,6 +22,7 @@ function wait(milliseconds: number) {
 }
 
 export default function CameraScreen() {
+  const { layoutId } = useLocalSearchParams<{ layoutId?: string | string[] }>();
   const cameraRef = useRef<CameraView>(null);
   const hasRequestedPermission = useRef(false);
   const isFocused = useIsFocused();
@@ -30,8 +33,12 @@ export default function CameraScreen() {
   const [flashEnabled, setFlashEnabled] = useState(true);
   const [cameraReady, setCameraReady] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [capturedPhotoUris, setCapturedPhotoUris] = useState<string[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
   const isTablet = width >= 768;
+  const selectedLayoutId = Array.isArray(layoutId) ? layoutId[0] : layoutId;
+  const selectedLayout = getPhotoLayout(selectedLayoutId);
+  const nextPhotoNumber = capturedPhotoUris.length + 1;
 
   useEffect(() => {
     if (
@@ -75,10 +82,19 @@ export default function CameraScreen() {
       });
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.push({
-        pathname: '/preview',
-        params: { photoUri: photo.uri },
-      });
+      const nextPhotoUris = [...capturedPhotoUris, photo.uri];
+
+      if (nextPhotoUris.length >= selectedLayout.photoCount) {
+        router.push({
+          pathname: '/preview',
+          params: {
+            layoutId: selectedLayout.id,
+            photoUris: JSON.stringify(nextPhotoUris),
+          },
+        });
+      } else {
+        setCapturedPhotoUris(nextPhotoUris);
+      }
     } finally {
       setIsCapturing(false);
     }
@@ -166,27 +182,46 @@ export default function CameraScreen() {
               <Text style={styles.countdown}>{countdown}</Text>
             </View>
           )}
+
+          {capturedPhotoUris.length > 0 && countdown === null && (
+            <Animated.View
+              key={capturedPhotoUris.length}
+              entering={FadeInDown.duration(220)}
+              exiting={FadeOutUp.duration(180)}
+              style={styles.savedBadge}>
+              <Text selectable style={styles.savedBadgeText}>
+                Photo {capturedPhotoUris.length} saved
+              </Text>
+            </Animated.View>
+          )}
         </View>
       </View>
 
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + SPACING.sm }]}>
-        <View style={styles.dots}>
-          <View style={styles.activeDot} />
-          <View style={styles.dot} />
-          <View style={styles.dot} />
+        <View style={styles.progressSection}>
+          <Text selectable style={styles.progressLabel}>
+            {selectedLayout.name}
+          </Text>
+          <View style={styles.dots}>
+            {Array.from({ length: selectedLayout.photoCount }, (_, index) => (
+              <View
+                key={index}
+                style={index < capturedPhotoUris.length ? styles.completedDot : styles.dot}
+              />
+            ))}
+          </View>
         </View>
 
         <CameraShutterButton
           disabled={!cameraReady || isCapturing}
-          label="TAKE PHOTO"
+          label={`PHOTO ${nextPhotoNumber} OF ${selectedLayout.photoCount}`}
           onPress={takePhoto}
         />
 
-        <View style={styles.dots}>
-          <View style={styles.dot} />
-          <View style={styles.dot} />
-          <View style={styles.activeDot} />
-        </View>
+        <Text selectable style={styles.remainingLabel}>
+          {selectedLayout.photoCount - capturedPhotoUris.length}{' '}
+          {selectedLayout.photoCount - capturedPhotoUris.length === 1 ? 'photo' : 'photos'} left
+        </Text>
       </View>
     </View>
   );
@@ -306,6 +341,19 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 6 },
     textShadowRadius: 16,
   },
+  savedBadge: {
+    position: 'absolute',
+    top: SPACING.md,
+    alignSelf: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADII.full,
+  },
+  savedBadgeText: {
+    ...TYPOGRAPHY.labelLarge,
+    color: COLORS.onPrimary,
+  },
   bottomBar: {
     minHeight: 220,
     flexDirection: 'row',
@@ -315,11 +363,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.xl,
     backgroundColor: COLORS.surfaceContainerLowest,
   },
-  dots: {
+  progressSection: {
     minWidth: 96,
-    flexDirection: 'row',
-    justifyContent: 'center',
+    alignItems: 'center',
     gap: SPACING.sm,
+  },
+  progressLabel: {
+    ...TYPOGRAPHY.labelLarge,
+    color: COLORS.primary,
+    textAlign: 'center',
+  },
+  dots: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: SPACING.xs,
   },
   dot: {
     width: 8,
@@ -327,10 +385,16 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surfaceContainerHighest,
     borderRadius: RADII.full,
   },
-  activeDot: {
-    width: 8,
-    height: 8,
-    backgroundColor: COLORS.primaryContainer,
+  completedDot: {
+    width: 12,
+    height: 12,
+    backgroundColor: COLORS.primary,
     borderRadius: RADII.full,
+  },
+  remainingLabel: {
+    ...TYPOGRAPHY.labelLarge,
+    minWidth: 120,
+    color: COLORS.onSurfaceVariant,
+    textAlign: 'center',
   },
 });

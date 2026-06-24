@@ -174,6 +174,9 @@ export const SHADOWS = {
   previewPrint: {
     boxShadow: '0 16px 36px rgba(104, 84, 141, 0.12)',
   },
+  layoutSelected: {
+    boxShadow: '0 16px 34px rgba(150, 66, 97, 0.18)',
+  },
 } satisfies Record<string, ViewStyle>;
 
 export const Fonts = {

@@ -1,33 +1,61 @@
-import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Alert, ScrollView, Share, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppHeader } from '@/components/AppHeader';
+import { CapturedPhotoLayout } from '@/components/preview/CapturedPhotoLayout';
 import { PreviewActionButton } from '@/components/preview/PreviewActionButton';
 import { PreviewFooterAction } from '@/components/preview/PreviewFooterAction';
 import { APP_BRAND_NAME, APP_NAME } from '@/constants/app';
+import { getPhotoLayout } from '@/constants/photoLayouts';
 import { COLORS, RADII, SHADOWS, SPACING, TYPOGRAPHY } from '@/constants/theme';
 
+function parsePhotoUris(serializedPhotoUris: string | undefined) {
+  if (!serializedPhotoUris) {
+    return [];
+  }
+
+  try {
+    const parsedValue: unknown = JSON.parse(serializedPhotoUris);
+
+    if (
+      Array.isArray(parsedValue) &&
+      parsedValue.every((value): value is string => typeof value === 'string')
+    ) {
+      return parsedValue;
+    }
+  } catch {
+    return [];
+  }
+
+  return [];
+}
+
 export default function PhotoPreviewScreen() {
-  const { photoUri } = useLocalSearchParams<{ photoUri?: string | string[] }>();
+  const { layoutId, photoUri, photoUris } = useLocalSearchParams<{
+    layoutId?: string | string[];
+    photoUri?: string | string[];
+    photoUris?: string | string[];
+  }>();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
-  const capturedPhotoUri = Array.isArray(photoUri) ? photoUri[0] : photoUri;
-
-  const retakePhoto = () => {
-    router.back();
-  };
+  const selectedLayoutId = Array.isArray(layoutId) ? layoutId[0] : layoutId;
+  const selectedLayout = getPhotoLayout(selectedLayoutId);
+  const legacyPhotoUri = Array.isArray(photoUri) ? photoUri[0] : photoUri;
+  const serializedPhotoUris = Array.isArray(photoUris) ? photoUris[0] : photoUris;
+  const parsedPhotoUris = parsePhotoUris(serializedPhotoUris);
+  const capturedPhotoUris =
+    parsedPhotoUris.length > 0 ? parsedPhotoUris : legacyPhotoUri ? [legacyPhotoUri] : [];
 
   const sharePhoto = async () => {
-    if (!capturedPhotoUri) {
+    if (capturedPhotoUris.length === 0) {
       return;
     }
 
     await Share.share({
       message: `My ${APP_BRAND_NAME} photo`,
-      url: capturedPhotoUri,
+      url: capturedPhotoUris[0],
     });
   };
 
@@ -39,7 +67,7 @@ export default function PhotoPreviewScreen() {
     Alert.alert('Printer not connected', 'Connect a printer before printing this photo.');
   };
 
-  if (!capturedPhotoUri) {
+  if (capturedPhotoUris.length === 0) {
     return (
       <View style={styles.missingPhoto}>
         <Text selectable style={styles.missingPhotoTitle}>
@@ -51,7 +79,12 @@ export default function PhotoPreviewScreen() {
         <PreviewActionButton
           icon="camera.fill"
           label="Open Camera"
-          onPress={() => router.replace('/camera')}
+          onPress={() =>
+            router.replace({
+              pathname: '/camera',
+              params: { layoutId: selectedLayout.id },
+            })
+          }
           variant="primary"
         />
       </View>
@@ -74,10 +107,9 @@ export default function PhotoPreviewScreen() {
       <View style={[styles.content, !isTablet && styles.mobileContent]}>
         <View style={styles.previewColumn}>
           <View style={[styles.printCard, !isTablet && styles.mobilePrintCard]}>
-            <Image
-              source={{ uri: capturedPhotoUri }}
-              contentFit="cover"
-              style={styles.photo}
+            <CapturedPhotoLayout
+              columns={selectedLayout.columns}
+              photoUris={capturedPhotoUris}
             />
             <View style={styles.printLabel}>
               <Text selectable style={styles.printLabelText}>
@@ -95,7 +127,12 @@ export default function PhotoPreviewScreen() {
             <PreviewActionButton
               icon="camera.fill"
               label="Retake"
-              onPress={retakePhoto}
+              onPress={() =>
+                router.replace({
+                  pathname: '/camera',
+                  params: { layoutId: selectedLayout.id },
+                })
+              }
               variant="outline"
             />
             <PreviewActionButton
@@ -131,7 +168,12 @@ export default function PhotoPreviewScreen() {
           <PreviewFooterAction
             icon="arrow.clockwise"
             label="Retake"
-            onPress={retakePhoto}
+            onPress={() =>
+              router.replace({
+                pathname: '/camera',
+                params: { layoutId: selectedLayout.id },
+              })
+            }
           />
           <PreviewFooterAction
             active
@@ -196,11 +238,6 @@ const styles = StyleSheet.create({
   mobilePrintCard: {
     width: 320,
     height: 430,
-  },
-  photo: {
-    flex: 1,
-    width: '100%',
-    backgroundColor: COLORS.surfaceContainerHigh,
   },
   printLabel: {
     minHeight: 38,

@@ -10,6 +10,7 @@ export default function UserLayout() {
         headerTintColor: COLORS.onSurface,
       }}>
       <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="layout-selection" options={{ headerShown: false }} />
       <Stack.Screen name="camera" options={{ headerShown: false }} />
       <Stack.Screen name="preview" options={{ headerShown: false }} />
       <Stack.Screen name="settings" options={{ title: 'Settings' }} />

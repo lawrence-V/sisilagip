@@ -69,10 +69,10 @@ export default function WelcomeScreen() {
         </View>
 
         <View style={styles.callToAction}>
-          <Link href="/camera" asChild>
+          <Link href="/layout-selection" asChild>
             <PrimaryButton
               label="START"
-              accessibilityHint="Opens the photo booth camera"
+              accessibilityHint="Opens photo layout selection"
               style={styles.startButton}
             />
           </Link>
