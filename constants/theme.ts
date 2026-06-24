@@ -48,6 +48,8 @@ export const COLORS = {
   background: '#F9F9F9',
   onBackground: '#1A1C1C',
   surfaceVariant: '#E2E2E2',
+  cameraOverlay: 'rgba(26, 28, 28, 0.16)',
+  countdownShadow: 'rgba(26, 28, 28, 0.35)',
   transparent: 'transparent',
 } as const;
 
@@ -159,6 +161,15 @@ export const SHADOWS = {
   },
   buttonPressed: {
     boxShadow: '0 4px 10px rgba(104, 84, 141, 0.18)',
+  },
+  welcomePhoto: {
+    boxShadow: '0 12px 32px rgba(104, 84, 141, 0.12)',
+  },
+  cameraControl: {
+    boxShadow: '0 6px 18px rgba(26, 28, 28, 0.10)',
+  },
+  cameraShutter: {
+    boxShadow: '0 8px 24px rgba(104, 84, 141, 0.22)',
   },
 } satisfies Record<string, ViewStyle>;
 

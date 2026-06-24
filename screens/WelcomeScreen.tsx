@@ -4,7 +4,7 @@ import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-n
 
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { COLORS, RADII, SIZES, SPACING, TYPOGRAPHY } from '@/constants/theme';
+import { COLORS, RADII, SHADOWS, SIZES, SPACING, TYPOGRAPHY } from '@/constants/theme';
 
 export default function WelcomeScreen() {
   const { height, width } = useWindowDimensions();
@@ -22,7 +22,7 @@ export default function WelcomeScreen() {
 
       <View style={styles.header}>
         <Text selectable style={styles.brand}>
-          Gagayyem Booth
+          Sisilagip Booth
         </Text>
 
         <View style={styles.headerActions}>
@@ -47,7 +47,7 @@ export default function WelcomeScreen() {
       <View style={[styles.main, isTablet ? styles.tabletMain : styles.mobileMain]}>
         <View style={styles.heading}>
           <Text selectable style={[styles.title, !isTablet && styles.mobileTitle]}>
-            GAGAYYEM BOOTH
+            SISILAGIP BOOTH
           </Text>
           <View style={styles.tagline}>
             <Text selectable style={styles.taglineText}>
@@ -68,11 +68,13 @@ export default function WelcomeScreen() {
         </View>
 
         <View style={styles.callToAction}>
-          <PrimaryButton
-            label="START"
-            accessibilityHint="Starts the photo booth experience"
-            style={styles.startButton}
-          />
+          <Link href="/camera" asChild>
+            <PrimaryButton
+              label="START"
+              accessibilityHint="Opens the photo booth camera"
+              style={styles.startButton}
+            />
+          </Link>
           <Text selectable style={styles.helperText}>
             Tap the button to create memories
           </Text>
@@ -181,7 +183,7 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     overflow: 'hidden',
     transform: [{ rotate: '1.5deg' }],
-    boxShadow: '0 12px 32px rgba(104, 84, 141, 0.12)',
+    ...SHADOWS.welcomePhoto,
   },
   mobilePhotoCard: {
     width: 330,

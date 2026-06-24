@@ -3,7 +3,7 @@
     "name": "sisilagip",
     "slug": "sisilagip",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "sisilagip",
     "userInterfaceStyle": "automatic",
@@ -27,6 +27,13 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Sisilagip Booth to use the camera for taking photos.",
+          "recordAudioAndroid": false
+        }
+      ],
       [
         "expo-splash-screen",
         {

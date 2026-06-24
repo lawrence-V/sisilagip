@@ -21,6 +21,9 @@ const MAPPING = {
   'questionmark.circle': 'help-outline',
   gearshape: 'settings',
   'camera.fill': 'photo-camera',
+  'arrow.left': 'arrow-back',
+  'camera.rotate': 'flip-camera-ios',
+  'bolt.fill': 'flash-on',
 } as IconMapping;
 
 /**
