@@ -4,6 +4,7 @@ import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-n
 
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { APP_BRAND_NAME } from '@/constants/app';
 import { COLORS, RADII, SHADOWS, SIZES, SPACING, TYPOGRAPHY } from '@/constants/theme';
 
 export default function WelcomeScreen() {
@@ -22,7 +23,7 @@ export default function WelcomeScreen() {
 
       <View style={styles.header}>
         <Text selectable style={styles.brand}>
-          Sisilagip Booth
+          {APP_BRAND_NAME}
         </Text>
 
         <View style={styles.headerActions}>
@@ -47,7 +48,7 @@ export default function WelcomeScreen() {
       <View style={[styles.main, isTablet ? styles.tabletMain : styles.mobileMain]}>
         <View style={styles.heading}>
           <Text selectable style={[styles.title, !isTablet && styles.mobileTitle]}>
-            SISILAGIP BOOTH
+            {APP_BRAND_NAME.toUpperCase()}
           </Text>
           <View style={styles.tagline}>
             <Text selectable style={styles.taglineText}>

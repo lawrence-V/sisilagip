@@ -171,6 +171,9 @@ export const SHADOWS = {
   cameraShutter: {
     boxShadow: '0 8px 24px rgba(104, 84, 141, 0.22)',
   },
+  previewPrint: {
+    boxShadow: '0 16px 36px rgba(104, 84, 141, 0.12)',
+  },
 } satisfies Record<string, ViewStyle>;
 
 export const Fonts = {

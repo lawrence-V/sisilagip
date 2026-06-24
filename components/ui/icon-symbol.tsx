@@ -24,6 +24,11 @@ const MAPPING = {
   'arrow.left': 'arrow-back',
   'camera.rotate': 'flip-camera-ios',
   'bolt.fill': 'flash-on',
+  'paintpalette.fill': 'palette',
+  'printer.fill': 'print',
+  'arrow.clockwise': 'refresh',
+  'checkmark.circle.fill': 'check-circle',
+  'square.and.arrow.up': 'share',
 } as IconMapping;
 
 /**

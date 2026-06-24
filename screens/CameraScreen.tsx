@@ -1,6 +1,5 @@
 import { CameraType, CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
-import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useEffect, useRef, useState } from 'react';
@@ -9,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CameraControlButton } from '@/components/camera/CameraControlButton';
 import { CameraShutterButton } from '@/components/camera/CameraShutterButton';
+import { APP_BRAND_NAME } from '@/constants/app';
 import { COLORS, RADII, SPACING, TYPOGRAPHY } from '@/constants/theme';
 
 const COUNTDOWN_SECONDS = [3, 2, 1] as const;
@@ -30,7 +30,6 @@ export default function CameraScreen() {
   const [flashEnabled, setFlashEnabled] = useState(true);
   const [cameraReady, setCameraReady] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
-  const [capturedPhotoUri, setCapturedPhotoUri] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const isTablet = width >= 768;
 
@@ -70,22 +69,19 @@ export default function CameraScreen() {
 
     setCountdown(null);
 
-    const photo = await cameraRef.current.takePictureAsync({
-      quality: 0.9,
-    });
+    try {
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.9,
+      });
 
-    setCapturedPhotoUri(photo.uri);
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setIsCapturing(false);
-  };
-
-  const handleShutterPress = () => {
-    if (capturedPhotoUri) {
-      setCapturedPhotoUri(null);
-      return;
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.push({
+        pathname: '/preview',
+        params: { photoUri: photo.uri },
+      });
+    } finally {
+      setIsCapturing(false);
     }
-
-    takePhoto();
   };
 
   if (!permission) {
@@ -99,7 +95,7 @@ export default function CameraScreen() {
           Camera access is needed
         </Text>
         <Text selectable style={styles.permissionMessage}>
-          Sisilagip Booth uses the camera only when you are taking booth photos.
+          {APP_BRAND_NAME} uses the camera only when you are taking booth photos.
         </Text>
         <Pressable
           accessibilityRole="button"
@@ -129,7 +125,7 @@ export default function CameraScreen() {
         />
 
         <Text selectable style={[styles.brand, !isTablet && styles.mobileBrand]}>
-          Sisilagip Booth
+          {APP_BRAND_NAME}
         </Text>
 
         <View style={styles.topBarActions}>
@@ -152,21 +148,17 @@ export default function CameraScreen() {
 
       <View style={styles.previewArea}>
         <View style={[styles.cameraFrame, isTablet ? styles.tabletCamera : styles.mobileCamera]}>
-          {capturedPhotoUri ? (
-            <Image source={{ uri: capturedPhotoUri }} contentFit="cover" style={styles.camera} />
-          ) : (
-            isFocused && (
-              <CameraView
-                ref={cameraRef}
-                animateShutter
-                facing={facing}
-                flash={flashEnabled ? 'on' : 'off'}
-                mirror={facing === 'front'}
-                mode="picture"
-                onCameraReady={() => setCameraReady(true)}
-                style={styles.camera}
-              />
-            )
+          {isFocused && (
+            <CameraView
+              ref={cameraRef}
+              animateShutter
+              facing={facing}
+              flash={flashEnabled ? 'on' : 'off'}
+              mirror={facing === 'front'}
+              mode="picture"
+              onCameraReady={() => setCameraReady(true)}
+              style={styles.camera}
+            />
           )}
 
           {countdown !== null && (
@@ -186,8 +178,8 @@ export default function CameraScreen() {
 
         <CameraShutterButton
           disabled={!cameraReady || isCapturing}
-          label={capturedPhotoUri ? 'RETAKE' : 'TAKE PHOTO'}
-          onPress={handleShutterPress}
+          label="TAKE PHOTO"
+          onPress={takePhoto}
         />
 
         <View style={styles.dots}>
