@@ -89,8 +89,8 @@ export default function PhotoPreviewScreen() {
     Alert.alert('Receipt details', 'Group-name editing will be added with the print settings.');
   };
 
-  const showPrinterNotice = () => {
-    Alert.alert('Printer not connected', 'Connect a thermal printer before printing this receipt.');
+  const startPrinting = () => {
+    router.push('/printing');
   };
 
   if (capturedPhotoUris.length === 0) {
@@ -188,7 +188,7 @@ export default function PhotoPreviewScreen() {
             <PreviewActionButton
               icon="printer.fill"
               label="Print This!"
-              onPress={showPrinterNotice}
+              onPress={startPrinting}
               variant="primary"
             />
           </View>
