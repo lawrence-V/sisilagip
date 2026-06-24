@@ -34,7 +34,7 @@ const navigationTheme: Theme = {
 };
 
 export const unstable_settings = {
-  anchor: '(tabs)',
+  anchor: '(user)',
 };
 
 export default function RootLayout() {
@@ -61,8 +61,7 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: Colors.light.background },
           headerTintColor: Colors.light.text,
         }}>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Design system' }} />
+        <Stack.Screen name="(user)" options={{ headerShown: false }} />
       </Stack>
       <StatusBar style="dark" />
     </ThemeProvider>

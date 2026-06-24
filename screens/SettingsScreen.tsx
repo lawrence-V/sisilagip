@@ -3,46 +3,68 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ColorSwatch } from '@/components/ColorSwatch';
 import { COLORS, RADII, SIZES, SPACING, TYPOGRAPHY } from '@/constants/theme';
 
-const SWATCHES = [
-  { name: 'Primary', color: COLORS.primary, text: COLORS.onPrimary },
-  { name: 'Secondary', color: COLORS.secondaryContainer, text: COLORS.onSecondaryContainer },
-  { name: 'Tertiary', color: COLORS.tertiaryContainer, text: COLORS.onTertiaryContainer },
-  { name: 'Surface', color: COLORS.surfaceContainerLowest, text: COLORS.onSurface },
+const COLOR_SWATCHES = [
+  { name: 'Primary', color: COLORS.primary, textColor: COLORS.onPrimary },
+  {
+    name: 'Secondary',
+    color: COLORS.secondaryContainer,
+    textColor: COLORS.onSecondaryContainer,
+  },
+  {
+    name: 'Tertiary',
+    color: COLORS.tertiaryContainer,
+    textColor: COLORS.onTertiaryContainer,
+  },
+  {
+    name: 'Surface',
+    color: COLORS.surfaceContainerLowest,
+    textColor: COLORS.onSurface,
+  },
 ] as const;
 
-export default function DesignSystemScreen() {
+export default function SettingsScreen() {
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={styles.scrollContent}>
       <View style={styles.container}>
         <View style={styles.heading}>
-          <Text style={styles.title}>Design system</Text>
-          <Text style={styles.description}>
-            These examples read directly from the shared tokens in constants/theme.ts.
+          <Text selectable style={styles.title}>
+            Appearance
+          </Text>
+          <Text selectable style={styles.description}>
+            Project-wide colors and typography are controlled from constants/theme.ts.
           </Text>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Core colors</Text>
+          <Text selectable style={styles.sectionTitle}>
+            Color palette
+          </Text>
           <View style={styles.swatchGrid}>
-            {SWATCHES.map((swatch) => (
+            {COLOR_SWATCHES.map((swatch) => (
               <ColorSwatch
                 key={swatch.name}
                 name={swatch.name}
                 color={swatch.color}
-                textColor={swatch.text}
+                textColor={swatch.textColor}
               />
             ))}
           </View>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Type scale</Text>
+          <Text selectable style={styles.sectionTitle}>
+            Typography
+          </Text>
           <View style={styles.typeCard}>
-            <Text style={styles.displaySample}>Shared Joy</Text>
-            <Text style={styles.headlineSample}>Friendly and clear</Text>
-            <Text style={styles.bodySample}>
+            <Text selectable style={styles.displaySample}>
+              Shared Joy
+            </Text>
+            <Text selectable style={styles.headlineSample}>
+              Friendly and clear
+            </Text>
+            <Text selectable style={styles.bodySample}>
               Nunito Sans and generous spacing keep the experience readable at a distance.
             </Text>
           </View>

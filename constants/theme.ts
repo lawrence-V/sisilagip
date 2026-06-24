@@ -155,10 +155,10 @@ export const SHADOWS = {
     boxShadow: '0 8px 24px rgba(104, 84, 141, 0.12)',
   },
   button: {
-    boxShadow: '0 8px 0 rgba(69, 50, 104, 0.22)',
+    boxShadow: '0 10px 18px rgba(104, 84, 141, 0.24)',
   },
   buttonPressed: {
-    boxShadow: '0 3px 0 rgba(69, 50, 104, 0.22)',
+    boxShadow: '0 4px 10px rgba(104, 84, 141, 0.18)',
   },
 } satisfies Record<string, ViewStyle>;
 

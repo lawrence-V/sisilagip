@@ -6,7 +6,13 @@ type PrimaryButtonProps = PressableProps & {
   label: string;
 };
 
-export function PrimaryButton({ label, disabled, style, ...props }: PrimaryButtonProps) {
+export function PrimaryButton({
+  children,
+  label,
+  disabled,
+  style,
+  ...props
+}: PrimaryButtonProps) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -18,7 +24,7 @@ export function PrimaryButton({ label, disabled, style, ...props }: PrimaryButto
         typeof style === 'function' ? style(state) : style,
       ]}
       {...props}>
-      <Text style={styles.label}>{label}</Text>
+      {children ?? <Text style={styles.label}>{label}</Text>}
     </Pressable>
   );
 }
