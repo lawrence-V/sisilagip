@@ -4,11 +4,12 @@ import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-n
 
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { APP_BRAND_NAME } from '@/constants/app';
 import { COLORS, RADII, SHADOWS, SIZES, SPACING, TYPOGRAPHY } from '@/constants/theme';
+import { useAppSettings } from '@/hooks/useAppSettings';
 
 export default function WelcomeScreen() {
   const { height, width } = useWindowDimensions();
+  const [settings] = useAppSettings();
   const isTablet = width >= 768;
 
   return (
@@ -22,8 +23,8 @@ export default function WelcomeScreen() {
       <View style={styles.glow} />
 
       <View style={styles.header}>
-        <Text selectable style={styles.brand}>
-          {APP_BRAND_NAME}
+        <Text selectable adjustsFontSizeToFit numberOfLines={1} style={styles.brand}>
+          {settings.eventName}
         </Text>
 
         <View style={styles.headerActions}>
@@ -47,8 +48,12 @@ export default function WelcomeScreen() {
 
       <View style={[styles.main, isTablet ? styles.tabletMain : styles.mobileMain]}>
         <View style={styles.heading}>
-          <Text selectable style={[styles.title, !isTablet && styles.mobileTitle]}>
-            {APP_BRAND_NAME.toUpperCase()}
+          <Text
+            selectable
+            adjustsFontSizeToFit
+            numberOfLines={2}
+            style={[styles.title, !isTablet && styles.mobileTitle]}>
+            {settings.eventName.toUpperCase()}
           </Text>
           <View style={styles.tagline}>
             <Text selectable style={styles.taglineText}>

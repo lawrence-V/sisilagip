@@ -14,7 +14,7 @@ export default function UserLayout() {
       <Stack.Screen name="camera" options={{ headerShown: false }} />
       <Stack.Screen name="preview" options={{ headerShown: false }} />
       <Stack.Screen name="printing" options={{ headerShown: false }} />
-      <Stack.Screen name="settings" options={{ title: 'Settings' }} />
+      <Stack.Screen name="settings" options={{ headerShown: false }} />
       <Stack.Screen
         name="help"
         options={{

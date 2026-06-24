@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
@@ -18,9 +18,12 @@ const PRINTING_STEPS = [
 ] as const;
 
 export default function PrintingScreen() {
+  const { copies } = useLocalSearchParams<{ copies?: string | string[] }>();
   const insets = useSafeAreaInsets();
   const [activeStep, setActiveStep] = useState(0);
   const isComplete = activeStep >= PRINTING_STEPS.length;
+  const requestedCopiesValue = Array.isArray(copies) ? copies[0] : copies;
+  const requestedCopies = Math.min(5, Math.max(1, Number(requestedCopiesValue) || 1));
 
   useEffect(() => {
     if (isComplete) {
@@ -55,8 +58,12 @@ export default function PrintingScreen() {
             </Text>
             <Text selectable style={styles.subtitle}>
               {isComplete
-                ? 'Your receipt has finished processing.'
-                : 'Please hold on while your memory becomes tangible.'}
+                ? `${requestedCopies} ${
+                    requestedCopies === 1 ? 'copy is' : 'copies are'
+                  } ready.`
+                : `Preparing ${requestedCopies} ${
+                    requestedCopies === 1 ? 'copy' : 'copies'
+                  } of your receipt.`}
             </Text>
           </View>
         </Animated.View>

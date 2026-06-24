@@ -3,17 +3,22 @@ import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { APP_BRAND_NAME } from '@/constants/app';
 import { COLORS, SPACING, TYPOGRAPHY } from '@/constants/theme';
+import { useAppSettings } from '@/hooks/useAppSettings';
 
 export function AppHeader() {
   const { width } = useWindowDimensions();
+  const [settings] = useAppSettings();
   const isCompact = width < 600;
 
   return (
     <View style={styles.header}>
-      <Text selectable style={[styles.brand, isCompact && styles.compactBrand]}>
-        {APP_BRAND_NAME}
+      <Text
+        selectable
+        adjustsFontSizeToFit
+        numberOfLines={1}
+        style={[styles.brand, isCompact && styles.compactBrand]}>
+        {settings.eventName}
       </Text>
 
       <View style={styles.actions}>

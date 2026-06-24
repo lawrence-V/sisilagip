@@ -9,9 +9,9 @@ import Animated, { FadeInDown, FadeOutUp } from 'react-native-reanimated';
 
 import { CameraControlButton } from '@/components/camera/CameraControlButton';
 import { CameraShutterButton } from '@/components/camera/CameraShutterButton';
-import { APP_BRAND_NAME } from '@/constants/app';
 import { getPhotoLayout } from '@/constants/photoLayouts';
 import { COLORS, RADII, SPACING, TYPOGRAPHY } from '@/constants/theme';
+import { useAppSettings } from '@/hooks/useAppSettings';
 
 const COUNTDOWN_SECONDS = [3, 2, 1] as const;
 
@@ -23,6 +23,7 @@ function wait(milliseconds: number) {
 
 export default function CameraScreen() {
   const { layoutId } = useLocalSearchParams<{ layoutId?: string | string[] }>();
+  const [settings] = useAppSettings();
   const cameraRef = useRef<CameraView>(null);
   const hasRequestedPermission = useRef(false);
   const isFocused = useIsFocused();
@@ -111,7 +112,7 @@ export default function CameraScreen() {
           Camera access is needed
         </Text>
         <Text selectable style={styles.permissionMessage}>
-          {APP_BRAND_NAME} uses the camera only when you are taking booth photos.
+          {settings.eventName} uses the camera only when you are taking booth photos.
         </Text>
         <Pressable
           accessibilityRole="button"
@@ -140,8 +141,12 @@ export default function CameraScreen() {
           onPress={() => router.back()}
         />
 
-        <Text selectable style={[styles.brand, !isTablet && styles.mobileBrand]}>
-          {APP_BRAND_NAME}
+        <Text
+          selectable
+          adjustsFontSizeToFit
+          numberOfLines={1}
+          style={[styles.brand, !isTablet && styles.mobileBrand]}>
+          {settings.eventName}
         </Text>
 
         <View style={styles.topBarActions}>

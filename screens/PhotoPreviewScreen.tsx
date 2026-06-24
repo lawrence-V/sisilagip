@@ -8,7 +8,6 @@ import { PreviewActionButton } from '@/components/preview/PreviewActionButton';
 import { PreviewFooterAction } from '@/components/preview/PreviewFooterAction';
 import { ReceiptBarcode } from '@/components/preview/ReceiptBarcode';
 import { ReceiptDetailRow } from '@/components/preview/ReceiptDetailRow';
-import { APP_BRAND_NAME, APP_NAME } from '@/constants/app';
 import { getPhotoLayout } from '@/constants/photoLayouts';
 import {
   COLORS,
@@ -18,6 +17,7 @@ import {
   SPACING,
   TYPOGRAPHY,
 } from '@/constants/theme';
+import { useAppSettings } from '@/hooks/useAppSettings';
 
 function parsePhotoUris(serializedPhotoUris: string | undefined) {
   if (!serializedPhotoUris) {
@@ -56,6 +56,7 @@ export default function PhotoPreviewScreen() {
     photoUri?: string | string[];
     photoUris?: string | string[];
   }>();
+  const [settings] = useAppSettings();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
@@ -80,7 +81,7 @@ export default function PhotoPreviewScreen() {
     }
 
     await Share.share({
-      message: `My ${APP_BRAND_NAME} photo`,
+      message: `My ${settings.eventName} photo`,
       url: capturedPhotoUris[0],
     });
   };
@@ -90,7 +91,19 @@ export default function PhotoPreviewScreen() {
   };
 
   const startPrinting = () => {
-    router.push('/printing');
+    router.push({
+      pathname: '/printing',
+      params: { copies: String(settings.printCopies) },
+    });
+  };
+
+  const confirmPhoto = () => {
+    if (settings.autoPrint) {
+      startPrinting();
+      return;
+    }
+
+    router.dismissTo('/');
   };
 
   if (capturedPhotoUris.length === 0) {
@@ -128,8 +141,12 @@ export default function PhotoPreviewScreen() {
       <View style={[styles.content, !isTablet && styles.mobileContent]}>
         <View style={styles.receipt}>
           <View style={styles.receiptHeader}>
-            <Text selectable style={styles.receiptBrand}>
-              {APP_NAME.toUpperCase()}
+            <Text
+              selectable
+              adjustsFontSizeToFit
+              numberOfLines={2}
+              style={styles.receiptBrand}>
+              {settings.eventName.toUpperCase()}
             </Text>
             <View style={styles.shortDivider} />
             <Text selectable style={styles.receiptTagline}>
@@ -160,7 +177,7 @@ export default function PhotoPreviewScreen() {
               THANK YOU!
             </Text>
             <Text selectable style={styles.thankYouMessage}>
-              KEEP THIS MEMORY FOREVER
+              {settings.receiptFooter.toUpperCase()}
             </Text>
           </View>
 
@@ -215,7 +232,7 @@ export default function PhotoPreviewScreen() {
             active
             icon="checkmark.circle.fill"
             label="Confirm"
-            onPress={() => router.dismissTo('/')}
+            onPress={confirmPhoto}
           />
           <PreviewFooterAction
             icon="square.and.arrow.up"
