@@ -46,6 +46,7 @@ function getPrintTone(value: string | string[] | undefined): UsbPrintTone {
     selectedValue === 'auto' ||
     selectedValue === 'calibration' ||
     selectedValue === 'contrast' ||
+    selectedValue === 'face' ||
     selectedValue === 'group' ||
     selectedValue === 'jarvis' ||
     selectedValue === 'sierra'

@@ -341,7 +341,7 @@ class UsbThermalPrinterModule : Module() {
       }
 
       val profiles = if (tone == "calibration") {
-        listOf("auto", "atkinson", "sierra", "jarvis", "contrast")
+        listOf("auto", "face", "atkinson", "sierra", "jarvis", "contrast")
       } else {
         listOf(tone)
       }
@@ -360,7 +360,7 @@ class UsbThermalPrinterModule : Module() {
             profileName,
             footer,
             printerWidth,
-            profile == "group"
+            profile
           )
           val receiptBytes = bitmapToEscPosBitImage(receiptBitmap, profile)
           receiptBitmap.recycle()
@@ -383,7 +383,7 @@ class UsbThermalPrinterModule : Module() {
     eventName: String,
     footer: String,
     printerWidth: Int,
-    groupClear: Boolean
+    tone: String
   ): Bitmap {
     val width = printerWidth
     val margin = 12
@@ -437,7 +437,7 @@ class UsbThermalPrinterModule : Module() {
       photoBase64s,
       columns,
       Rect(margin, photoTop, width - margin, photoTop + photoAreaHeight),
-      groupClear
+      tone
     )
 
     drawDashedLine(canvas, margin, width - margin, detailsTop - 12, linePaint)
@@ -467,7 +467,7 @@ class UsbThermalPrinterModule : Module() {
     photoBase64s: List<String>,
     columns: Int,
     bounds: Rect,
-    groupClear: Boolean
+    tone: String
   ) {
     val safeColumns = columns.coerceIn(1, 3)
     val rows = ceil(photoBase64s.size / safeColumns.toDouble()).toInt().coerceAtLeast(1)
@@ -493,8 +493,8 @@ class UsbThermalPrinterModule : Module() {
         (top + cellHeight).toFloat()
       )
       val photo = decodePhoto(photoBase64)
-      val groupPhoto = if (groupClear) cropAndEnlargeGroup(photo) else photo
-      val processedPhoto = preprocessPhotoWithOpenCv(groupPhoto)
+      val groupPhoto = if (tone == "group") cropAndEnlargeGroup(photo) else photo
+      val processedPhoto = preprocessPhotoWithOpenCv(groupPhoto, tone == "face")
       drawCenterCrop(canvas, processedPhoto, destination, imagePaint)
       canvas.drawRect(destination, borderPaint)
       processedPhoto.recycle()
@@ -586,7 +586,7 @@ class UsbThermalPrinterModule : Module() {
     }
   }
 
-  private fun preprocessPhotoWithOpenCv(bitmap: Bitmap): Bitmap {
+  private fun preprocessPhotoWithOpenCv(bitmap: Bitmap, faceClear: Boolean): Bitmap {
     ensureOpenCvReady()
 
     val rgba = Mat()
@@ -603,16 +603,16 @@ class UsbThermalPrinterModule : Module() {
     try {
       Utils.bitmapToMat(bitmap, rgba)
       Imgproc.cvtColor(rgba, grayscale, Imgproc.COLOR_RGBA2GRAY)
-      Imgproc.bilateralFilter(grayscale, denoised, 5, 28.0, 28.0)
+      Imgproc.bilateralFilter(grayscale, denoised, 7, 42.0, 42.0)
 
       // CLAHE improves each small region independently, which recovers faces in
       // shadow without forcing an already bright room background toward white.
-      val clahe = Imgproc.createCLAHE(2.2, Size(8.0, 8.0))
+      val clahe = Imgproc.createCLAHE(1.9, Size(8.0, 8.0))
       clahe.apply(denoised, equalized)
       clahe.collectGarbage()
       // Retain most of the original tonal structure so CLAHE does not bleach
       // ring-lit skin while still recovering details from darker regions.
-      Core.addWeighted(equalized, 0.62, denoised, 0.38, 0.0, equalizedBlend)
+      Core.addWeighted(equalized, 0.52, denoised, 0.48, 0.0, equalizedBlend)
 
       // Compress highlights as well as darken midtones. Ring lights can push
       // skin toward white; the roll-off maps those values back into a printable
@@ -632,9 +632,9 @@ class UsbThermalPrinterModule : Module() {
 
       // Unsharp masking strengthens eyes, hair, clothing, and object outlines
       // before the image is reduced to one-bit thermal output.
-      Imgproc.GaussianBlur(shadowLifted, detailBlur, Size(0.0, 0.0), 1.1)
-      Core.addWeighted(shadowLifted, 1.25, detailBlur, -0.25, 0.0, sharpened)
-      enhanceDetectedFaces(sharpened, faces)
+      Imgproc.GaussianBlur(shadowLifted, detailBlur, Size(0.0, 0.0), 1.0)
+      Core.addWeighted(shadowLifted, 1.16, detailBlur, -0.16, 0.0, sharpened)
+      enhanceDetectedFaces(sharpened, faces, faceClear)
 
       return Bitmap.createBitmap(
         bitmap.width,
@@ -657,7 +657,11 @@ class UsbThermalPrinterModule : Module() {
     }
   }
 
-  private fun enhanceDetectedFaces(image: Mat, faces: MatOfRect) {
+  private fun enhanceDetectedFaces(
+    image: Mat,
+    faces: MatOfRect,
+    faceClear: Boolean
+  ) {
     val classifier = getFaceClassifier()
     val minimumFaceSize = maxOf(48.0, minOf(image.width(), image.height()) * 0.08)
     classifier.detectMultiScale(
@@ -681,6 +685,7 @@ class UsbThermalPrinterModule : Module() {
       val region = org.opencv.core.Rect(left, top, right - left, bottom - top)
       val faceRegion = image.submat(region)
       val enhancedFace = Mat()
+      val smoothedFace = Mat()
       val faceDetailBlur = Mat()
       val faceLookupTable = Mat(1, 256, CvType.CV_8UC1)
       val featherMask = Mat.zeros(region.height, region.width, CvType.CV_8UC1)
@@ -694,22 +699,25 @@ class UsbThermalPrinterModule : Module() {
       val blendedFace = Mat()
 
       try {
+        val faceGamma = if (faceClear) 0.92 else 1.16
         val faceToneValues = ByteArray(256) { index ->
-          val gammaCorrected = 255.0 * Math.pow(index / 255.0, 1.16)
+          val gammaCorrected = 255.0 * Math.pow(index / 255.0, faceGamma)
           val highlightCompressed = if (gammaCorrected > 154.0) {
             154.0 + ((gammaCorrected - 154.0) * 0.48)
           } else {
             gammaCorrected
           }
-          (highlightCompressed - 8.0).toInt().coerceIn(0, 218).toByte()
+          val offset = if (faceClear) 4.0 else -8.0
+          (highlightCompressed + offset).toInt().coerceIn(0, 224).toByte()
         }
         faceLookupTable.put(0, 0, faceToneValues)
         Core.LUT(faceRegion, faceLookupTable, enhancedFace)
 
-        // Restore restrained local definition after darkening the face. This
-        // improves eyes, nose, mouth, and hair without whitening skin again.
-        Imgproc.GaussianBlur(enhancedFace, faceDetailBlur, Size(0.0, 0.0), 0.9)
-        Core.addWeighted(enhancedFace, 1.18, faceDetailBlur, -0.18, 0.0, enhancedFace)
+        // Smooth skin noise while keeping strong boundaries such as eyes, nose,
+        // mouth, and hair. Then restore only a small amount of edge definition.
+        Imgproc.bilateralFilter(enhancedFace, smoothedFace, 5, 30.0, 30.0)
+        Imgproc.GaussianBlur(smoothedFace, faceDetailBlur, Size(0.0, 0.0), 0.9)
+        Core.addWeighted(smoothedFace, 1.10, faceDetailBlur, -0.10, 0.0, enhancedFace)
 
         // Blend through a soft ellipse instead of replacing the rectangular
         // detector area. This removes visible boxes around processed faces.
@@ -740,6 +748,7 @@ class UsbThermalPrinterModule : Module() {
       } finally {
         faceRegion.release()
         enhancedFace.release()
+        smoothedFace.release()
         faceDetailBlur.release()
         faceLookupTable.release()
         featherMask.release()
@@ -939,8 +948,10 @@ class UsbThermalPrinterModule : Module() {
     val blackPixels = BooleanArray(pixels.size)
     val grayscalePixels = FloatArray(pixels.size)
     val adjustedPixels = FloatArray(pixels.size)
+    val faceMask = if (tone == "face") createFeatheredFaceMask(bitmap) else null
     val brightness = when (tone) {
       "atkinson" -> -12f
+      "face" -> -6f
       "group" -> -14f
       "jarvis" -> -14f
       "sierra" -> -14f
@@ -949,6 +960,7 @@ class UsbThermalPrinterModule : Module() {
     }
     val contrast = when (tone) {
       "atkinson" -> 38f
+      "face" -> 28f
       "group" -> 42f
       "jarvis" -> 42f
       "sierra" -> 42f
@@ -957,6 +969,7 @@ class UsbThermalPrinterModule : Module() {
     }
     val sharpenAmount = when (tone) {
       "atkinson" -> 0.45f
+      "face" -> 0.24f
       "group" -> 0.58f
       "jarvis" -> 0.50f
       "sierra" -> 0.50f
@@ -1000,6 +1013,7 @@ class UsbThermalPrinterModule : Module() {
 
     val threshold = when (tone) {
       "auto" -> calculateOtsuThreshold(adjustedPixels).coerceIn(168f, 208f)
+      "face" -> 186f
       "group" -> calculateOtsuThreshold(adjustedPixels).coerceIn(174f, 210f)
       "atkinson" -> 188f
       "contrast" -> 205f
@@ -1068,7 +1082,8 @@ class UsbThermalPrinterModule : Module() {
         blackPixels,
         bitmap.width,
         bitmap.height,
-        threshold
+        threshold,
+        faceMask
       )
     }
 
@@ -1105,6 +1120,63 @@ class UsbThermalPrinterModule : Module() {
     output.write(0x0A)
     output.write(byteArrayOf(0x1B, 0x61, 0x00))
     return output.toByteArray()
+  }
+
+  private fun createFeatheredFaceMask(bitmap: Bitmap): FloatArray {
+    ensureOpenCvReady()
+    val rgba = Mat()
+    val grayscale = Mat()
+    val faces = MatOfRect()
+    val mask = Mat.zeros(bitmap.height, bitmap.width, CvType.CV_8UC1)
+    val maskFloat = Mat()
+
+    try {
+      Utils.bitmapToMat(bitmap, rgba)
+      Imgproc.cvtColor(rgba, grayscale, Imgproc.COLOR_RGBA2GRAY)
+      getFaceClassifier().detectMultiScale(
+        grayscale,
+        faces,
+        1.10,
+        3,
+        0,
+        Size(maxOf(32.0, minOf(bitmap.width, bitmap.height) * 0.035), 32.0),
+        Size()
+      )
+
+      faces.toArray().forEach { face ->
+        Imgproc.ellipse(
+          mask,
+          Point(face.x + (face.width / 2.0), face.y + (face.height * 0.52)),
+          Size(face.width * 0.58, face.height * 0.62),
+          0.0,
+          0.0,
+          360.0,
+          Scalar(255.0),
+          -1
+        )
+      }
+
+      if (faces.empty()) {
+        return FloatArray(bitmap.width * bitmap.height)
+      }
+
+      Imgproc.GaussianBlur(
+        mask,
+        mask,
+        Size(0.0, 0.0),
+        maxOf(4.0, minOf(bitmap.width, bitmap.height) * 0.012)
+      )
+      mask.convertTo(maskFloat, CvType.CV_32F, 1.0 / 255.0)
+      return FloatArray(bitmap.width * bitmap.height).also { values ->
+        maskFloat.get(0, 0, values)
+      }
+    } finally {
+      rgba.release()
+      grayscale.release()
+      faces.release()
+      mask.release()
+      maskFloat.release()
+    }
   }
 
   private fun calculateOtsuThreshold(pixels: FloatArray): Float {
@@ -1175,7 +1247,8 @@ class UsbThermalPrinterModule : Module() {
     blackPixels: BooleanArray,
     width: Int,
     height: Int,
-    threshold: Float
+    threshold: Float,
+    faceMask: FloatArray? = null
   ) {
     val workingPixels = adjustedPixels.copyOf()
 
@@ -1190,10 +1263,13 @@ class UsbThermalPrinterModule : Module() {
         val index = (y * width) + x
         val originalLuminance = grayscalePixels[index]
         val currentLuminance = workingPixels[index].coerceIn(0f, 255f)
+        val faceStrength = faceMask?.get(index)?.coerceIn(0f, 1f) ?: 0f
+        val localThreshold = threshold - (faceStrength * 20f)
+        val forcedBlackLimit = if (faceStrength > 0f) 8f else 20f
         val isBlack = when {
-          originalLuminance <= 20f -> true
+          originalLuminance <= forcedBlackLimit -> true
           originalLuminance >= 248f -> false
-          else -> currentLuminance < threshold
+          else -> currentLuminance < localThreshold
         }
         blackPixels[index] = isBlack
 

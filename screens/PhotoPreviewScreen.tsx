@@ -36,6 +36,7 @@ const PRINT_TONES: ReadonlyArray<{
   description: string;
 }> = [
   { value: 'auto', label: 'Auto', description: 'Otsu selects darkness automatically' },
+  { value: 'face', label: 'Face Clear', description: 'Lifts dark faces without changing the background' },
   { value: 'group', label: 'Group Clear', description: 'Crops and enlarges distant groups' },
   { value: 'atkinson', label: 'Atkinson', description: 'Clean faces with less grain' },
   { value: 'sierra', label: 'Sierra', description: 'Balanced grayscale detail' },

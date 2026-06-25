@@ -20,6 +20,7 @@ export type UsbPrintTone =
   | 'auto'
   | 'calibration'
   | 'contrast'
+  | 'face'
   | 'group'
   | 'jarvis'
   | 'sierra';
