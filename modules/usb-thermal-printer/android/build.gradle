@@ -16,3 +16,7 @@ android {
     abortOnError false
   }
 }
+
+dependencies {
+  implementation 'org.opencv:opencv:4.13.0'
+}

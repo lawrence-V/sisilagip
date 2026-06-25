@@ -15,7 +15,16 @@ export type UsbPrintResult = {
   copies: number;
 };
 
-export type UsbPrintTone = 'balanced' | 'contrast' | 'light';
+export type UsbPrintTone =
+  | 'atkinson'
+  | 'auto'
+  | 'calibration'
+  | 'contrast'
+  | 'group'
+  | 'jarvis'
+  | 'sierra';
+
+export type UsbPrinterWidth = 512 | 576;
 
 export type UsbReceiptPrintOptions = {
   photoBase64s: string[];
@@ -24,4 +33,6 @@ export type UsbReceiptPrintOptions = {
   footer: string;
   copies: number;
   tone: UsbPrintTone;
+  printerWidth: UsbPrinterWidth;
+  largePhotos: boolean;
 };

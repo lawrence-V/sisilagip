@@ -14,12 +14,16 @@ type UsbThermalPrinterNativeModule = {
   listDevicesAsync(): Promise<UsbPrinterDevice[]>;
   printReceiptAsync(
     deviceId: number,
-    photoBase64s: string[],
-    columns: number,
-    eventName: string,
-    footer: string,
-    copies: number,
-    tone: string,
+    options: {
+      photoBase64s: string[];
+      columns: number;
+      eventName: string;
+      footer: string;
+      copies: number;
+      tone: string;
+      printerWidth: number;
+      largePhotos: boolean;
+    },
   ): Promise<UsbPrintResult>;
 };
 
@@ -50,11 +54,15 @@ export async function printUsbReceipt(
 ): Promise<UsbPrintResult> {
   return getNativeModule().printReceiptAsync(
     deviceId,
-    options.photoBase64s,
-    options.columns,
-    options.eventName,
-    options.footer,
-    options.copies,
-    options.tone,
+    {
+      photoBase64s: options.photoBase64s,
+      columns: options.columns,
+      eventName: options.eventName,
+      footer: options.footer,
+      copies: options.copies,
+      tone: options.tone,
+      printerWidth: options.printerWidth,
+      largePhotos: options.largePhotos,
+    },
   );
 }

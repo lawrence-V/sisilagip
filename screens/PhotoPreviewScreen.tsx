@@ -28,15 +28,18 @@ import {
   TYPOGRAPHY,
 } from '@/constants/theme';
 import { useAppSettings } from '@/hooks/useAppSettings';
-import type { UsbPrintTone } from '@/types/UsbPrinter';
+import type { UsbPrinterWidth, UsbPrintTone } from '@/types/UsbPrinter';
 
 const PRINT_TONES: ReadonlyArray<{
   value: UsbPrintTone;
   label: string;
   description: string;
 }> = [
-  { value: 'light', label: 'Light', description: 'Dithered detail with moderate darkness' },
-  { value: 'balanced', label: 'Balanced', description: 'Darker Floyd–Steinberg photo detail' },
+  { value: 'auto', label: 'Auto', description: 'Otsu selects darkness automatically' },
+  { value: 'group', label: 'Group Clear', description: 'Crops and enlarges distant groups' },
+  { value: 'atkinson', label: 'Atkinson', description: 'Clean faces with less grain' },
+  { value: 'sierra', label: 'Sierra', description: 'Balanced grayscale detail' },
+  { value: 'jarvis', label: 'Jarvis', description: 'Maximum tonal detail' },
   { value: 'contrast', label: 'Sharp', description: 'High-contrast solid black and white' },
 ];
 
@@ -79,7 +82,9 @@ export default function PhotoPreviewScreen() {
     printJobId?: string | string[];
   }>();
   const [settings] = useAppSettings();
-  const [printTone, setPrintTone] = useState<UsbPrintTone>('balanced');
+  const [printTone, setPrintTone] = useState<UsbPrintTone>('auto');
+  const [printerWidth, setPrinterWidth] = useState<UsbPrinterWidth>(576);
+  const [largePhotos, setLargePhotos] = useState(false);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
@@ -114,7 +119,7 @@ export default function PhotoPreviewScreen() {
     Alert.alert('Receipt details', 'Group-name editing will be added with the print settings.');
   };
 
-  const startPrinting = () => {
+  const startPrinting = (tone: UsbPrintTone = printTone) => {
     router.push({
       pathname: '/printing',
       params: {
@@ -122,7 +127,9 @@ export default function PhotoPreviewScreen() {
         layoutId: selectedLayout.id,
         photoUris: JSON.stringify(capturedPhotoUris),
         printJobId: selectedPrintJobId,
-        tone: printTone,
+        tone,
+        printerWidth: String(printerWidth),
+        largePhotos: String(largePhotos),
       },
     });
   };
@@ -257,6 +264,41 @@ export default function PhotoPreviewScreen() {
                   );
                 })}
               </View>
+              <Text selectable style={styles.toneTitle}>
+                Printer width
+              </Text>
+              <View style={styles.widthOptions}>
+                {([576, 512] as const).map((option) => {
+                  const isSelected = option === printerWidth;
+
+                  return (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isSelected }}
+                      key={option}
+                      onPress={() => setPrinterWidth(option)}
+                      style={[
+                        styles.widthOption,
+                        isSelected && styles.toneOptionSelected,
+                      ]}>
+                      <Text style={styles.toneOptionLabel}>{option} px</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: largePhotos }}
+                onPress={() => setLargePhotos((current) => !current)}
+                style={[
+                  styles.largePhotoOption,
+                  largePhotos && styles.toneOptionSelected,
+                ]}>
+                <Text style={styles.toneOptionLabel}>Large photos: {largePhotos ? 'ON' : 'OFF'}</Text>
+                <Text style={styles.toneOptionDescription}>
+                  Prints one photo per row for clearer faces.
+                </Text>
+              </Pressable>
             </View>
             <PreviewActionButton
               icon="pencil"
@@ -269,6 +311,12 @@ export default function PhotoPreviewScreen() {
               label="Print This!"
               onPress={startPrinting}
               variant="primary"
+            />
+            <PreviewActionButton
+              icon="paintpalette.fill"
+              label="Print Calibration"
+              onPress={() => startPrinting('calibration')}
+              variant="outline"
             />
           </View>
 
@@ -439,10 +487,11 @@ const styles = StyleSheet.create({
   },
   toneOptions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: SPACING.xs,
   },
   toneOption: {
-    flex: 1,
+    width: '48%',
     minHeight: 78,
     justifyContent: 'center',
     gap: 2,
@@ -474,6 +523,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     textAlign: 'center',
+  },
+  widthOptions: {
+    flexDirection: 'row',
+    gap: SPACING.xs,
+  },
+  widthOption: {
+    flex: 1,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.surfaceContainerLowest,
+    borderWidth: 2,
+    borderColor: COLORS.transparent,
+    borderRadius: RADII.medium,
+    borderCurve: 'continuous',
+  },
+  largePhotoOption: {
+    minHeight: 66,
+    justifyContent: 'center',
+    gap: 2,
+    paddingHorizontal: SPACING.sm,
+    backgroundColor: COLORS.surfaceContainerLowest,
+    borderWidth: 2,
+    borderColor: COLORS.transparent,
+    borderRadius: RADII.medium,
+    borderCurve: 'continuous',
   },
   infoCard: {
     flexDirection: 'row',

@@ -27,8 +27,21 @@ import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import org.opencv.android.OpenCVLoader
+import org.opencv.android.Utils
+import org.opencv.core.Core
+import org.opencv.core.CvType
+import org.opencv.core.Mat
+import org.opencv.core.MatOfRect
+import org.opencv.core.Point
+import org.opencv.core.Scalar
+import org.opencv.core.Size
+import org.opencv.imgproc.Imgproc
+import org.opencv.objdetect.CascadeClassifier
 import java.io.ByteArrayOutputStream
 import java.io.ByteArrayInputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -43,12 +56,16 @@ private data class PendingPrintRequest(
   val footer: String,
   val copies: Int,
   val tone: String,
+  val printerWidth: Int,
+  val largePhotos: Boolean,
   val promise: Promise
 )
 
 class UsbThermalPrinterModule : Module() {
   private var permissionReceiver: BroadcastReceiver? = null
   private var pendingPrintRequest: PendingPrintRequest? = null
+  private var isOpenCvReady = false
+  private var faceClassifier: CascadeClassifier? = null
 
   private val context: Context
     get() = appContext.reactContext ?: throw Exceptions.ReactContextLost()
@@ -76,13 +93,16 @@ class UsbThermalPrinterModule : Module() {
 
     AsyncFunction("printReceiptAsync") {
         deviceId: Int,
-        photoBase64s: List<String>,
-        columns: Int,
-        eventName: String,
-        footer: String,
-        copies: Int,
-        tone: String,
+        options: Map<String, Any>,
         promise: Promise ->
+      val photoBase64s = (options["photoBase64s"] as? List<*>)
+        ?.filterIsInstance<String>()
+        .orEmpty()
+      val columns = (options["columns"] as? Number)?.toInt() ?: 1
+      val eventName = options["eventName"] as? String ?: ""
+      val footer = options["footer"] as? String ?: ""
+      val copies = (options["copies"] as? Number)?.toInt() ?: 1
+      val tone = options["tone"] as? String ?: "auto"
       val device = findDevice(deviceId)
       if (device == null) {
         promise.reject("ERR_USB_DEVICE_NOT_FOUND", "The selected USB device is no longer connected.", null)
@@ -96,6 +116,9 @@ class UsbThermalPrinterModule : Module() {
 
       val safeCopies = copies.coerceIn(1, 5)
       val safeColumns = columns.coerceIn(1, 3)
+      val requestedPrinterWidth = (options["printerWidth"] as? Number)?.toInt()
+      val safePrinterWidth = if (requestedPrinterWidth == 512) 512 else 576
+      val largePhotos = options["largePhotos"] as? Boolean ?: false
       if (usbManager.hasPermission(device)) {
         printOnBackgroundThread(
           device,
@@ -105,6 +128,8 @@ class UsbThermalPrinterModule : Module() {
           footer,
           safeCopies,
           tone,
+          safePrinterWidth,
+          largePhotos,
           promise
         )
       } else {
@@ -116,6 +141,8 @@ class UsbThermalPrinterModule : Module() {
           footer,
           safeCopies,
           tone,
+          safePrinterWidth,
+          largePhotos,
           promise
         )
       }
@@ -148,6 +175,8 @@ class UsbThermalPrinterModule : Module() {
     footer: String,
     copies: Int,
     tone: String,
+    printerWidth: Int,
+    largePhotos: Boolean,
     promise: Promise
   ) {
     if (pendingPrintRequest != null) {
@@ -190,6 +219,8 @@ class UsbThermalPrinterModule : Module() {
           request.footer,
           request.copies,
           request.tone,
+          request.printerWidth,
+          request.largePhotos,
           request.promise
         )
       }
@@ -203,6 +234,8 @@ class UsbThermalPrinterModule : Module() {
       footer,
       copies,
       tone,
+      printerWidth,
+      largePhotos,
       promise
     )
     permissionReceiver = receiver
@@ -252,6 +285,8 @@ class UsbThermalPrinterModule : Module() {
     footer: String,
     copies: Int,
     tone: String,
+    printerWidth: Int,
+    largePhotos: Boolean,
     promise: Promise
   ) {
     Thread {
@@ -263,7 +298,9 @@ class UsbThermalPrinterModule : Module() {
           eventName,
           footer,
           copies,
-          tone
+          tone,
+          printerWidth,
+          largePhotos
         )
         promise.resolve(
           mapOf(
@@ -289,7 +326,9 @@ class UsbThermalPrinterModule : Module() {
     eventName: String,
     footer: String,
     copies: Int,
-    tone: String
+    tone: String,
+    printerWidth: Int,
+    largePhotos: Boolean
   ) {
     val printerTarget = findBulkOutput(device)
       ?: throw IllegalStateException("This USB device has no bulk output endpoint.")
@@ -301,18 +340,33 @@ class UsbThermalPrinterModule : Module() {
         throw IllegalStateException("Could not claim the USB printer interface.")
       }
 
-      val receiptBitmap = buildReceiptBitmap(
-        photoBase64s,
-        columns,
-        eventName,
-        footer
-      )
-      val receiptBytes = bitmapToEscPosBitImage(receiptBitmap, tone)
-      receiptBitmap.recycle()
+      val profiles = if (tone == "calibration") {
+        listOf("auto", "atkinson", "sierra", "jarvis", "contrast")
+      } else {
+        listOf(tone)
+      }
 
-      repeat(copies) { copyIndex ->
+      repeat(copies) {
         writeAll(connection, printerTarget.second, byteArrayOf(0x1B, 0x40))
-        writeAll(connection, printerTarget.second, receiptBytes)
+        profiles.forEach { profile ->
+          val profileName = if (tone == "calibration") {
+            "$eventName ${profile.uppercase()}"
+          } else {
+            eventName
+          }
+          val receiptBitmap = buildReceiptBitmap(
+            photoBase64s,
+            if (largePhotos || profile == "group") 1 else columns,
+            profileName,
+            footer,
+            printerWidth,
+            profile == "group"
+          )
+          val receiptBytes = bitmapToEscPosBitImage(receiptBitmap, profile)
+          receiptBitmap.recycle()
+          writeAll(connection, printerTarget.second, receiptBytes)
+          writeAll(connection, printerTarget.second, byteArrayOf(0x0A, 0x0A))
+        }
         writeAll(connection, printerTarget.second, byteArrayOf(0x0A, 0x0A, 0x0A))
         writeAll(connection, printerTarget.second, byteArrayOf(0x1D, 0x56, 0x41, 0x10))
       }
@@ -327,10 +381,11 @@ class UsbThermalPrinterModule : Module() {
     photoBase64s: List<String>,
     columns: Int,
     eventName: String,
-    footer: String
+    footer: String,
+    printerWidth: Int,
+    groupClear: Boolean
   ): Bitmap {
-    // Standard 80 mm, 203 DPI ESC/POS print-head width.
-    val width = 576
+    val width = printerWidth
     val margin = 12
     val safeColumns = columns.coerceIn(1, 3)
     val rows = ceil(photoBase64s.size / safeColumns.toDouble()).toInt().coerceAtLeast(1)
@@ -381,7 +436,8 @@ class UsbThermalPrinterModule : Module() {
       canvas,
       photoBase64s,
       columns,
-      Rect(margin, photoTop, width - margin, photoTop + photoAreaHeight)
+      Rect(margin, photoTop, width - margin, photoTop + photoAreaHeight),
+      groupClear
     )
 
     drawDashedLine(canvas, margin, width - margin, detailsTop - 12, linePaint)
@@ -410,7 +466,8 @@ class UsbThermalPrinterModule : Module() {
     canvas: Canvas,
     photoBase64s: List<String>,
     columns: Int,
-    bounds: Rect
+    bounds: Rect,
+    groupClear: Boolean
   ) {
     val safeColumns = columns.coerceIn(1, 3)
     val rows = ceil(photoBase64s.size / safeColumns.toDouble()).toInt().coerceAtLeast(1)
@@ -436,83 +493,301 @@ class UsbThermalPrinterModule : Module() {
         (top + cellHeight).toFloat()
       )
       val photo = decodePhoto(photoBase64)
-      val equalizedPhoto = applyClippedHistogramEqualization(photo)
-      drawCenterCrop(canvas, equalizedPhoto, destination, imagePaint)
+      val groupPhoto = if (groupClear) cropAndEnlargeGroup(photo) else photo
+      val processedPhoto = preprocessPhotoWithOpenCv(groupPhoto)
+      drawCenterCrop(canvas, processedPhoto, destination, imagePaint)
       canvas.drawRect(destination, borderPaint)
-      equalizedPhoto.recycle()
+      processedPhoto.recycle()
+      if (groupPhoto !== photo) {
+        groupPhoto.recycle()
+      }
       photo.recycle()
     }
   }
 
-  private fun applyClippedHistogramEqualization(bitmap: Bitmap): Bitmap {
-    val width = bitmap.width
-    val height = bitmap.height
-    val pixels = IntArray(width * height)
-    val luminance = IntArray(pixels.size)
-    val histogram = IntArray(256)
-    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+  private fun cropAndEnlargeGroup(bitmap: Bitmap): Bitmap {
+    ensureOpenCvReady()
+    val rgba = Mat()
+    val grayscale = Mat()
+    val faces = MatOfRect()
 
-    pixels.forEachIndexed { index, color ->
-      val value = (
-        (Color.red(color) * 299) +
-          (Color.green(color) * 587) +
-          (Color.blue(color) * 114)
-        ) / 1000
-      luminance[index] = value
-      histogram[value] += 1
+    try {
+      Utils.bitmapToMat(bitmap, rgba)
+      Imgproc.cvtColor(rgba, grayscale, Imgproc.COLOR_RGBA2GRAY)
+      getFaceClassifier().detectMultiScale(
+        grayscale,
+        faces,
+        1.10,
+        3,
+        0,
+        Size(maxOf(36.0, minOf(bitmap.width, bitmap.height) * 0.045), 36.0),
+        Size()
+      )
+
+      val detectedFaces = faces.toArray()
+      if (detectedFaces.isEmpty()) {
+        return bitmap
+      }
+
+      val faceLeft = detectedFaces.minOf { it.x }
+      val faceTop = detectedFaces.minOf { it.y }
+      val faceRight = detectedFaces.maxOf { it.x + it.width }
+      val faceBottom = detectedFaces.maxOf { it.y + it.height }
+      val groupWidth = faceRight - faceLeft
+      val averageFaceHeight = detectedFaces.sumOf { it.height }.toDouble() / detectedFaces.size
+
+      // Keep shoulders and some context, but remove distant empty background.
+      val horizontalPadding = maxOf(groupWidth * 0.18, averageFaceHeight * 0.65).toInt()
+      val topPadding = (averageFaceHeight * 0.55).toInt()
+      val bottomPadding = (averageFaceHeight * 2.35).toInt()
+      val left = maxOf(0, faceLeft - horizontalPadding)
+      val top = maxOf(0, faceTop - topPadding)
+      val right = minOf(bitmap.width, faceRight + horizontalPadding)
+      val bottom = minOf(bitmap.height, faceBottom + bottomPadding)
+
+      val cropWidth = right - left
+      val cropHeight = bottom - top
+      if (
+        cropWidth <= 0 ||
+        cropHeight <= 0 ||
+        (cropWidth >= bitmap.width * 0.92 && cropHeight >= bitmap.height * 0.92)
+      ) {
+        return bitmap
+      }
+
+      val cropped = rgba.submat(org.opencv.core.Rect(left, top, cropWidth, cropHeight))
+      val enlarged = Mat()
+      return try {
+        // Restore a high-resolution working image so later face processing and
+        // thermal downsampling have more edge information to preserve.
+        Imgproc.resize(
+          cropped,
+          enlarged,
+          Size(bitmap.width.toDouble(), bitmap.height.toDouble()),
+          0.0,
+          0.0,
+          Imgproc.INTER_LANCZOS4
+        )
+        Bitmap.createBitmap(
+          bitmap.width,
+          bitmap.height,
+          Bitmap.Config.ARGB_8888
+        ).also { result ->
+          Utils.matToBitmap(enlarged, result)
+        }
+      } finally {
+        cropped.release()
+        enlarged.release()
+      }
+    } finally {
+      rgba.release()
+      grayscale.release()
+      faces.release()
     }
+  }
 
-    // Clip oversized histogram bins before equalization. This prevents a large
-    // plain background from dominating the tonal mapping and keeps faces natural.
-    val averageBinSize = maxOf(1, pixels.size / histogram.size)
-    val clipLimit = averageBinSize * 3
-    var clippedPixels = 0
-    for (index in histogram.indices) {
-      if (histogram[index] > clipLimit) {
-        clippedPixels += histogram[index] - clipLimit
-        histogram[index] = clipLimit
+  private fun preprocessPhotoWithOpenCv(bitmap: Bitmap): Bitmap {
+    ensureOpenCvReady()
+
+    val rgba = Mat()
+    val grayscale = Mat()
+    val denoised = Mat()
+    val equalized = Mat()
+    val equalizedBlend = Mat()
+    val shadowLifted = Mat()
+    val detailBlur = Mat()
+    val sharpened = Mat()
+    val faces = MatOfRect()
+    val lookupTable = Mat(1, 256, CvType.CV_8UC1)
+
+    try {
+      Utils.bitmapToMat(bitmap, rgba)
+      Imgproc.cvtColor(rgba, grayscale, Imgproc.COLOR_RGBA2GRAY)
+      Imgproc.bilateralFilter(grayscale, denoised, 5, 28.0, 28.0)
+
+      // CLAHE improves each small region independently, which recovers faces in
+      // shadow without forcing an already bright room background toward white.
+      val clahe = Imgproc.createCLAHE(2.2, Size(8.0, 8.0))
+      clahe.apply(denoised, equalized)
+      clahe.collectGarbage()
+      // Retain most of the original tonal structure so CLAHE does not bleach
+      // ring-lit skin while still recovering details from darker regions.
+      Core.addWeighted(equalized, 0.62, denoised, 0.38, 0.0, equalizedBlend)
+
+      // Compress highlights as well as darken midtones. Ring lights can push
+      // skin toward white; the roll-off maps those values back into a printable
+      // range instead of allowing large blank facial patches.
+      val gamma = 1.08
+      val gammaValues = ByteArray(256) { index ->
+        val gammaCorrected = 255.0 * Math.pow(index / 255.0, gamma)
+        val corrected = if (gammaCorrected > 174.0) {
+          174.0 + ((gammaCorrected - 174.0) * 0.56)
+        } else {
+          gammaCorrected
+        }
+        corrected.toInt().coerceIn(0, 235).toByte()
+      }
+      lookupTable.put(0, 0, gammaValues)
+      Core.LUT(equalizedBlend, lookupTable, shadowLifted)
+
+      // Unsharp masking strengthens eyes, hair, clothing, and object outlines
+      // before the image is reduced to one-bit thermal output.
+      Imgproc.GaussianBlur(shadowLifted, detailBlur, Size(0.0, 0.0), 1.1)
+      Core.addWeighted(shadowLifted, 1.25, detailBlur, -0.25, 0.0, sharpened)
+      enhanceDetectedFaces(sharpened, faces)
+
+      return Bitmap.createBitmap(
+        bitmap.width,
+        bitmap.height,
+        Bitmap.Config.ARGB_8888
+      ).also { processedBitmap ->
+        Utils.matToBitmap(sharpened, processedBitmap)
+      }
+    } finally {
+      rgba.release()
+      grayscale.release()
+      denoised.release()
+      equalized.release()
+      equalizedBlend.release()
+      shadowLifted.release()
+      detailBlur.release()
+      sharpened.release()
+      faces.release()
+      lookupTable.release()
+    }
+  }
+
+  private fun enhanceDetectedFaces(image: Mat, faces: MatOfRect) {
+    val classifier = getFaceClassifier()
+    val minimumFaceSize = maxOf(48.0, minOf(image.width(), image.height()) * 0.08)
+    classifier.detectMultiScale(
+      image,
+      faces,
+      1.12,
+      4,
+      0,
+      Size(minimumFaceSize, minimumFaceSize),
+      Size()
+    )
+
+    faces.toArray().forEach { face ->
+      val horizontalPadding = (face.width * 0.12).toInt()
+      val topPadding = (face.height * 0.10).toInt()
+      val bottomPadding = (face.height * 0.18).toInt()
+      val left = maxOf(0, face.x - horizontalPadding)
+      val top = maxOf(0, face.y - topPadding)
+      val right = minOf(image.width(), face.x + face.width + horizontalPadding)
+      val bottom = minOf(image.height(), face.y + face.height + bottomPadding)
+      val region = org.opencv.core.Rect(left, top, right - left, bottom - top)
+      val faceRegion = image.submat(region)
+      val enhancedFace = Mat()
+      val faceDetailBlur = Mat()
+      val faceLookupTable = Mat(1, 256, CvType.CV_8UC1)
+      val featherMask = Mat.zeros(region.height, region.width, CvType.CV_8UC1)
+      val featherMaskFloat = Mat()
+      val fullMask = Mat.ones(region.height, region.width, CvType.CV_32F)
+      val inverseMask = Mat()
+      val originalFloat = Mat()
+      val enhancedFloat = Mat()
+      val originalWeighted = Mat()
+      val enhancedWeighted = Mat()
+      val blendedFace = Mat()
+
+      try {
+        val faceToneValues = ByteArray(256) { index ->
+          val gammaCorrected = 255.0 * Math.pow(index / 255.0, 1.16)
+          val highlightCompressed = if (gammaCorrected > 154.0) {
+            154.0 + ((gammaCorrected - 154.0) * 0.48)
+          } else {
+            gammaCorrected
+          }
+          (highlightCompressed - 8.0).toInt().coerceIn(0, 218).toByte()
+        }
+        faceLookupTable.put(0, 0, faceToneValues)
+        Core.LUT(faceRegion, faceLookupTable, enhancedFace)
+
+        // Restore restrained local definition after darkening the face. This
+        // improves eyes, nose, mouth, and hair without whitening skin again.
+        Imgproc.GaussianBlur(enhancedFace, faceDetailBlur, Size(0.0, 0.0), 0.9)
+        Core.addWeighted(enhancedFace, 1.18, faceDetailBlur, -0.18, 0.0, enhancedFace)
+
+        // Blend through a soft ellipse instead of replacing the rectangular
+        // detector area. This removes visible boxes around processed faces.
+        Imgproc.ellipse(
+          featherMask,
+          Point(region.width / 2.0, region.height * 0.48),
+          Size(region.width * 0.44, region.height * 0.46),
+          0.0,
+          0.0,
+          360.0,
+          Scalar(255.0),
+          -1
+        )
+        Imgproc.GaussianBlur(
+          featherMask,
+          featherMask,
+          Size(0.0, 0.0),
+          maxOf(3.0, minOf(region.width, region.height) * 0.08)
+        )
+        featherMask.convertTo(featherMaskFloat, CvType.CV_32F, 1.0 / 255.0)
+        Core.subtract(fullMask, featherMaskFloat, inverseMask)
+        faceRegion.convertTo(originalFloat, CvType.CV_32F)
+        enhancedFace.convertTo(enhancedFloat, CvType.CV_32F)
+        Core.multiply(originalFloat, inverseMask, originalWeighted)
+        Core.multiply(enhancedFloat, featherMaskFloat, enhancedWeighted)
+        Core.add(originalWeighted, enhancedWeighted, blendedFace)
+        blendedFace.convertTo(faceRegion, faceRegion.type())
+      } finally {
+        faceRegion.release()
+        enhancedFace.release()
+        faceDetailBlur.release()
+        faceLookupTable.release()
+        featherMask.release()
+        featherMaskFloat.release()
+        fullMask.release()
+        inverseMask.release()
+        originalFloat.release()
+        enhancedFloat.release()
+        originalWeighted.release()
+        enhancedWeighted.release()
+        blendedFace.release()
+      }
+    }
+  }
+
+  private fun getFaceClassifier(): CascadeClassifier {
+    faceClassifier?.let { classifier ->
+      if (!classifier.empty()) {
+        return classifier
       }
     }
 
-    val sharedPixels = clippedPixels / histogram.size
-    val remainingPixels = clippedPixels % histogram.size
-    for (index in histogram.indices) {
-      histogram[index] += sharedPixels
-      if (index < remainingPixels) {
-        histogram[index] += 1
+    val cascadeFile = File(context.cacheDir, "haarcascade_frontalface_alt2.xml")
+    if (!cascadeFile.exists() || cascadeFile.length() == 0L) {
+      context.assets.open("haarcascade_frontalface_alt2.xml").use { input ->
+        FileOutputStream(cascadeFile).use { output ->
+          input.copyTo(output)
+        }
       }
     }
 
-    val cumulativeHistogram = IntArray(256)
-    var cumulativeCount = 0
-    var firstPopulatedCount = 0
-    for (index in histogram.indices) {
-      cumulativeCount += histogram[index]
-      cumulativeHistogram[index] = cumulativeCount
-      if (firstPopulatedCount == 0 && cumulativeCount > 0) {
-        firstPopulatedCount = cumulativeCount
-      }
+    val classifier = CascadeClassifier(cascadeFile.absolutePath)
+    if (classifier.empty()) {
+      throw IllegalStateException("OpenCV could not load the bundled face detector.")
+    }
+    faceClassifier = classifier
+    return classifier
+  }
+
+  private fun ensureOpenCvReady() {
+    if (isOpenCvReady) {
+      return
     }
 
-    val equalized = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-    val outputPixels = IntArray(pixels.size)
-    val usablePixelCount = maxOf(1, cumulativeCount - firstPopulatedCount)
-    val equalizationStrength = 0.72f
-
-    luminance.forEachIndexed { index, originalValue ->
-      val mappedValue = (
-        ((cumulativeHistogram[originalValue] - firstPopulatedCount) * 255f) /
-          usablePixelCount
-        ).coerceIn(0f, 255f)
-      val blendedValue = (
-        (originalValue * (1f - equalizationStrength)) +
-          (mappedValue * equalizationStrength)
-        ).toInt().coerceIn(0, 255)
-      outputPixels[index] = Color.rgb(blendedValue, blendedValue, blendedValue)
+    if (!OpenCVLoader.initLocal()) {
+      throw IllegalStateException("OpenCV could not initialize for photo processing.")
     }
-
-    equalized.setPixels(outputPixels, 0, width, 0, 0, width, height)
-    return equalized
+    isOpenCvReady = true
   }
 
   private fun decodePhoto(photoBase64: String): Bitmap {
@@ -665,24 +940,28 @@ class UsbThermalPrinterModule : Module() {
     val grayscalePixels = FloatArray(pixels.size)
     val adjustedPixels = FloatArray(pixels.size)
     val brightness = when (tone) {
-      "light" -> -8f
-      "contrast" -> -18f
-      else -> -14f
+      "atkinson" -> -12f
+      "group" -> -14f
+      "jarvis" -> -14f
+      "sierra" -> -14f
+      "contrast" -> -22f
+      else -> -16f
     }
     val contrast = when (tone) {
-      "light" -> 45f
-      "contrast" -> 70f
-      else -> 58f
+      "atkinson" -> 38f
+      "group" -> 42f
+      "jarvis" -> 42f
+      "sierra" -> 42f
+      "contrast" -> 58f
+      else -> 46f
     }
     val sharpenAmount = when (tone) {
-      "light" -> 0.45f
-      "contrast" -> 0.85f
-      else -> 0.65f
-    }
-    val threshold = when (tone) {
-      "light" -> 155f
-      "contrast" -> 175f
-      else -> 165f
+      "atkinson" -> 0.45f
+      "group" -> 0.58f
+      "jarvis" -> 0.50f
+      "sierra" -> 0.50f
+      "contrast" -> 0.75f
+      else -> 0.55f
     }
     val contrastFactor = (
       (259f * (contrast + 255f)) /
@@ -719,6 +998,16 @@ class UsbThermalPrinterModule : Module() {
       }
     }
 
+    val threshold = when (tone) {
+      "auto" -> calculateOtsuThreshold(adjustedPixels).coerceIn(168f, 208f)
+      "group" -> calculateOtsuThreshold(adjustedPixels).coerceIn(174f, 210f)
+      "atkinson" -> 188f
+      "contrast" -> 205f
+      "jarvis" -> 194f
+      "sierra" -> 194f
+      else -> 194f
+    }
+
     if (tone == "contrast") {
       applySolidThreshold(
         adjustedPixels,
@@ -726,8 +1015,54 @@ class UsbThermalPrinterModule : Module() {
         blackPixels,
         threshold
       )
+    } else if (tone == "jarvis") {
+      applyErrorDiffusionDither(
+        adjustedPixels,
+        grayscalePixels,
+        blackPixels,
+        bitmap.width,
+        bitmap.height,
+        threshold,
+        intArrayOf(
+          1, 0, 7,
+          2, 0, 5,
+          -2, 1, 3,
+          -1, 1, 5,
+          0, 1, 7,
+          1, 1, 5,
+          2, 1, 3,
+          -2, 2, 1,
+          -1, 2, 3,
+          0, 2, 5,
+          1, 2, 3,
+          2, 2, 1
+        ),
+        48f
+      )
+    } else if (tone == "sierra" || tone == "auto" || tone == "group") {
+      applyErrorDiffusionDither(
+        adjustedPixels,
+        grayscalePixels,
+        blackPixels,
+        bitmap.width,
+        bitmap.height,
+        threshold,
+        intArrayOf(
+          1, 0, 5,
+          2, 0, 3,
+          -2, 1, 2,
+          -1, 1, 4,
+          0, 1, 5,
+          1, 1, 4,
+          2, 1, 2,
+          -1, 2, 2,
+          0, 2, 3,
+          1, 2, 2
+        ),
+        32f
+      )
     } else {
-      applyFloydSteinbergDither(
+      applyAtkinsonDither(
         adjustedPixels,
         grayscalePixels,
         blackPixels,
@@ -737,41 +1072,86 @@ class UsbThermalPrinterModule : Module() {
       )
     }
 
+    val widthBytes = (bitmap.width + 7) / 8
     output.write(byteArrayOf(0x1B, 0x61, 0x01))
-    output.write(byteArrayOf(0x1B, 0x33, 0x18))
+    output.write(
+      byteArrayOf(
+        0x1D,
+        0x76,
+        0x30,
+        0x00,
+        (widthBytes and 0xFF).toByte(),
+        ((widthBytes shr 8) and 0xFF).toByte(),
+        (bitmap.height and 0xFF).toByte(),
+        ((bitmap.height shr 8) and 0xFF).toByte()
+      )
+    )
 
-    var bandTop = 0
-    while (bandTop < bitmap.height) {
-      output.write(0x1B)
-      output.write(0x2A)
-      output.write(0x21)
-      output.write(bitmap.width and 0xFF)
-      output.write((bitmap.width shr 8) and 0xFF)
-
-      for (x in 0 until bitmap.width) {
-        for (slice in 0 until 3) {
-          var value = 0
-          for (bit in 0 until 8) {
-            val y = bandTop + (slice * 8) + bit
-            if (y >= bitmap.height) {
-              continue
-            }
-
-            if (blackPixels[(y * bitmap.width) + x]) {
-              value = value or (0x80 shr bit)
-            }
+    // GS v 0 sends the complete raster row by row. Unlike legacy ESC * bands,
+    // the printer receives the exact 576-pixel bitmap without line-gap seams.
+    for (y in 0 until bitmap.height) {
+      for (byteColumn in 0 until widthBytes) {
+        var value = 0
+        for (bit in 0 until 8) {
+          val x = (byteColumn * 8) + bit
+          if (x < bitmap.width && blackPixels[(y * bitmap.width) + x]) {
+            value = value or (0x80 shr bit)
           }
-          output.write(value)
         }
+        output.write(value)
       }
-
-      output.write(0x0A)
-      bandTop += 24
     }
 
-    output.write(byteArrayOf(0x1B, 0x32))
+    output.write(0x0A)
     output.write(byteArrayOf(0x1B, 0x61, 0x00))
     return output.toByteArray()
+  }
+
+  private fun calculateOtsuThreshold(pixels: FloatArray): Float {
+    val histogram = IntArray(256)
+    pixels.forEach { luminance ->
+      histogram[luminance.toInt().coerceIn(0, 255)] += 1
+    }
+
+    val total = pixels.size
+    var weightedTotal = 0.0
+    histogram.forEachIndexed { index, count ->
+      weightedTotal += index * count.toDouble()
+    }
+
+    var backgroundWeight = 0
+    var backgroundSum = 0.0
+    var bestThreshold = 0
+    var maximumVariance = -1.0
+
+    for (threshold in histogram.indices) {
+      backgroundWeight += histogram[threshold]
+      if (backgroundWeight == 0) {
+        continue
+      }
+
+      val foregroundWeight = total - backgroundWeight
+      if (foregroundWeight == 0) {
+        break
+      }
+
+      backgroundSum += threshold * histogram[threshold].toDouble()
+      val backgroundMean = backgroundSum / backgroundWeight
+      val foregroundMean = (weightedTotal - backgroundSum) / foregroundWeight
+      val meanDifference = backgroundMean - foregroundMean
+      val variance = backgroundWeight.toDouble() *
+        foregroundWeight.toDouble() *
+        meanDifference *
+        meanDifference
+
+      if (variance > maximumVariance) {
+        maximumVariance = variance
+        bestThreshold = threshold
+      }
+    }
+
+    // Thermal photos need more black coverage than a neutral screen threshold.
+    return bestThreshold + 24f
   }
 
   private fun applySolidThreshold(
@@ -789,7 +1169,7 @@ class UsbThermalPrinterModule : Module() {
     }
   }
 
-  private fun applyFloydSteinbergDither(
+  private fun applyAtkinsonDither(
     adjustedPixels: FloatArray,
     grayscalePixels: FloatArray,
     blackPixels: BooleanArray,
@@ -818,11 +1198,65 @@ class UsbThermalPrinterModule : Module() {
         blackPixels[index] = isBlack
 
         val printedLuminance = if (isBlack) 0f else 255f
+        val distributedError = (currentLuminance - printedLuminance) / 8f
+        diffuseError(workingPixels, width, height, x + step, y, distributedError)
+        diffuseError(workingPixels, width, height, x + (step * 2), y, distributedError)
+        diffuseError(workingPixels, width, height, x - step, y + 1, distributedError)
+        diffuseError(workingPixels, width, height, x, y + 1, distributedError)
+        diffuseError(workingPixels, width, height, x + step, y + 1, distributedError)
+        diffuseError(workingPixels, width, height, x, y + 2, distributedError)
+        x += step
+      }
+    }
+  }
+
+  private fun applyErrorDiffusionDither(
+    adjustedPixels: FloatArray,
+    grayscalePixels: FloatArray,
+    blackPixels: BooleanArray,
+    width: Int,
+    height: Int,
+    threshold: Float,
+    kernel: IntArray,
+    divisor: Float
+  ) {
+    val workingPixels = adjustedPixels.copyOf()
+
+    for (y in 0 until height) {
+      val leftToRight = y % 2 == 0
+      val startX = if (leftToRight) 0 else width - 1
+      val endX = if (leftToRight) width else -1
+      val step = if (leftToRight) 1 else -1
+      var x = startX
+
+      while (x != endX) {
+        val index = (y * width) + x
+        val originalLuminance = grayscalePixels[index]
+        val currentLuminance = workingPixels[index].coerceIn(0f, 255f)
+        val isBlack = when {
+          originalLuminance <= 20f -> true
+          originalLuminance >= 248f -> false
+          else -> currentLuminance < threshold
+        }
+        blackPixels[index] = isBlack
+
+        val printedLuminance = if (isBlack) 0f else 255f
         val error = currentLuminance - printedLuminance
-        diffuseError(workingPixels, width, height, x + step, y, error * 7f / 16f)
-        diffuseError(workingPixels, width, height, x - step, y + 1, error * 3f / 16f)
-        diffuseError(workingPixels, width, height, x, y + 1, error * 5f / 16f)
-        diffuseError(workingPixels, width, height, x + step, y + 1, error / 16f)
+        var kernelIndex = 0
+        while (kernelIndex < kernel.size) {
+          val offsetX = kernel[kernelIndex] * step
+          val offsetY = kernel[kernelIndex + 1]
+          val weight = kernel[kernelIndex + 2]
+          diffuseError(
+            workingPixels,
+            width,
+            height,
+            x + offsetX,
+            y + offsetY,
+            error * weight / divisor
+          )
+          kernelIndex += 3
+        }
         x += step
       }
     }

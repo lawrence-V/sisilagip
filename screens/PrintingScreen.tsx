@@ -16,7 +16,11 @@ import {
   getUsbPrinterDevices,
   printUsbReceipt,
 } from '@/services/usbPrinterService';
-import type { UsbPrinterDevice, UsbPrintTone } from '@/types/UsbPrinter';
+import type {
+  UsbPrinterDevice,
+  UsbPrinterWidth,
+  UsbPrintTone,
+} from '@/types/UsbPrinter';
 
 const PRINTING_STEPS = [
   'Looking for a USB printer',
@@ -37,17 +41,28 @@ function getErrorMessage(error: unknown) {
 function getPrintTone(value: string | string[] | undefined): UsbPrintTone {
   const selectedValue = Array.isArray(value) ? value[0] : value;
 
-  if (selectedValue === 'light' || selectedValue === 'contrast') {
+  if (
+    selectedValue === 'atkinson' ||
+    selectedValue === 'auto' ||
+    selectedValue === 'calibration' ||
+    selectedValue === 'contrast' ||
+    selectedValue === 'group' ||
+    selectedValue === 'jarvis' ||
+    selectedValue === 'sierra'
+  ) {
     return selectedValue;
   }
 
-  return 'balanced';
+  return 'auto';
 }
 
 export default function PrintingScreen() {
-  const { copies, layoutId, printJobId, tone } = useLocalSearchParams<{
+  const { copies, largePhotos, layoutId, printerWidth, printJobId, tone } =
+    useLocalSearchParams<{
     copies?: string | string[];
+    largePhotos?: string | string[];
     layoutId?: string | string[];
+    printerWidth?: string | string[];
     printJobId?: string | string[];
     tone?: string | string[];
   }>();
@@ -65,6 +80,13 @@ export default function PrintingScreen() {
   const selectedLayout = getPhotoLayout(selectedLayoutId);
   const selectedPrintJobId = Array.isArray(printJobId) ? printJobId[0] : printJobId;
   const selectedTone = getPrintTone(tone);
+  const selectedPrinterWidthValue = Array.isArray(printerWidth)
+    ? printerWidth[0]
+    : printerWidth;
+  const selectedPrinterWidth: UsbPrinterWidth =
+    selectedPrinterWidthValue === '512' ? 512 : 576;
+  const largePhotosValue = Array.isArray(largePhotos) ? largePhotos[0] : largePhotos;
+  const useLargePhotos = largePhotosValue === 'true';
   const printJob = getPhotoPrintJob(selectedPrintJobId);
 
   const startTestPrint = useCallback(async () => {
@@ -95,6 +117,8 @@ export default function PrintingScreen() {
         footer: settings.receiptFooter,
         copies: requestedCopies,
         tone: selectedTone,
+        printerWidth: selectedPrinterWidth,
+        largePhotos: useLargePhotos,
       });
       setPhase('complete');
     } catch (error) {
@@ -108,6 +132,8 @@ export default function PrintingScreen() {
     settings.eventName,
     settings.receiptFooter,
     selectedTone,
+    selectedPrinterWidth,
+    useLargePhotos,
   ]);
 
   useEffect(() => {

@@ -32,7 +32,9 @@ export default function CameraScreen() {
   const { width } = useWindowDimensions();
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('front');
-  const [flashEnabled, setFlashEnabled] = useState(true);
+  // External booth/ring lighting should be the primary light source. Enabling
+  // the phone flash at the same time clips facial highlights and removes detail.
+  const [flashEnabled, setFlashEnabled] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [capturedPhotoUris, setCapturedPhotoUris] = useState<string[]>([]);
