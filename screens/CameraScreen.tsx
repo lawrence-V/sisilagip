@@ -12,6 +12,7 @@ import { CameraShutterButton } from '@/components/camera/CameraShutterButton';
 import { getPhotoLayout } from '@/constants/photoLayouts';
 import { COLORS, RADII, SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { useAppSettings } from '@/hooks/useAppSettings';
+import { createPhotoPrintJob } from '@/services/photoPrintJobService';
 
 const COUNTDOWN_SECONDS = [3, 2, 1] as const;
 
@@ -35,6 +36,7 @@ export default function CameraScreen() {
   const [cameraReady, setCameraReady] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [capturedPhotoUris, setCapturedPhotoUris] = useState<string[]>([]);
+  const [capturedPhotoBase64s, setCapturedPhotoBase64s] = useState<string[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
   const isTablet = width >= 768;
   const selectedLayoutId = Array.isArray(layoutId) ? layoutId[0] : layoutId;
@@ -79,22 +81,30 @@ export default function CameraScreen() {
 
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.9,
+        base64: true,
+        quality: 1,
       });
+      if (!photo.base64) {
+        throw new Error('The camera did not return printable image data.');
+      }
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const nextPhotoUris = [...capturedPhotoUris, photo.uri];
+      const nextPhotoBase64s = [...capturedPhotoBase64s, photo.base64];
 
       if (nextPhotoUris.length >= selectedLayout.photoCount) {
+        const printJobId = createPhotoPrintJob(nextPhotoBase64s);
         router.push({
           pathname: '/preview',
           params: {
             layoutId: selectedLayout.id,
             photoUris: JSON.stringify(nextPhotoUris),
+            printJobId,
           },
         });
       } else {
         setCapturedPhotoUris(nextPhotoUris);
+        setCapturedPhotoBase64s(nextPhotoBase64s);
       }
     } finally {
       setIsCapturing(false);

@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,34 +8,118 @@ import { AppHeader } from '@/components/AppHeader';
 import { AnimatedPrinter } from '@/components/printing/AnimatedPrinter';
 import { PrintingStatusRow } from '@/components/printing/PrintingStatusRow';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { getPhotoLayout } from '@/constants/photoLayouts';
 import { COLORS, RADII, SHADOWS, SPACING, TYPOGRAPHY } from '@/constants/theme';
+import { useAppSettings } from '@/hooks/useAppSettings';
+import { getPhotoPrintJob } from '@/services/photoPrintJobService';
+import {
+  getUsbPrinterDevices,
+  printUsbReceipt,
+} from '@/services/usbPrinterService';
+import type { UsbPrinterDevice, UsbPrintTone } from '@/types/UsbPrinter';
 
 const PRINTING_STEPS = [
-  'Photo ready',
-  'Receipt prepared',
-  'Sending to printer...',
-  'Almost done!',
+  'Looking for a USB printer',
+  'Requesting permission and connecting',
+  'Sending photo receipt',
 ] as const;
 
+type PrintPhase = 'complete' | 'detecting' | 'error' | 'sending';
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'The printer could not complete the test print.';
+}
+
+function getPrintTone(value: string | string[] | undefined): UsbPrintTone {
+  const selectedValue = Array.isArray(value) ? value[0] : value;
+
+  if (selectedValue === 'light' || selectedValue === 'contrast') {
+    return selectedValue;
+  }
+
+  return 'balanced';
+}
+
 export default function PrintingScreen() {
-  const { copies } = useLocalSearchParams<{ copies?: string | string[] }>();
+  const { copies, layoutId, printJobId, tone } = useLocalSearchParams<{
+    copies?: string | string[];
+    layoutId?: string | string[];
+    printJobId?: string | string[];
+    tone?: string | string[];
+  }>();
+  const [settings] = useAppSettings();
   const insets = useSafeAreaInsets();
-  const [activeStep, setActiveStep] = useState(0);
-  const isComplete = activeStep >= PRINTING_STEPS.length;
+  const didStartAutomatically = useRef(false);
+  const [phase, setPhase] = useState<PrintPhase>('detecting');
+  const [selectedPrinter, setSelectedPrinter] = useState<UsbPrinterDevice | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const isComplete = phase === 'complete';
+  const isBusy = phase === 'detecting' || phase === 'sending';
   const requestedCopiesValue = Array.isArray(copies) ? copies[0] : copies;
   const requestedCopies = Math.min(5, Math.max(1, Number(requestedCopiesValue) || 1));
+  const selectedLayoutId = Array.isArray(layoutId) ? layoutId[0] : layoutId;
+  const selectedLayout = getPhotoLayout(selectedLayoutId);
+  const selectedPrintJobId = Array.isArray(printJobId) ? printJobId[0] : printJobId;
+  const selectedTone = getPrintTone(tone);
+  const printJob = getPhotoPrintJob(selectedPrintJobId);
+
+  const startTestPrint = useCallback(async () => {
+    setErrorMessage(null);
+    setSelectedPrinter(null);
+    setPhase('detecting');
+
+    try {
+      if (!printJob || printJob.photoBase64s.length === 0) {
+        throw new Error('The photo print job expired. Return to the camera and take new photos.');
+      }
+
+      const devices = await getUsbPrinterDevices();
+      if (devices.length === 0) {
+        throw new Error(
+          'No USB device was found. Connect the printer to the Android device with a USB OTG adapter, then retry.',
+        );
+      }
+
+      const printer = devices.find((device) => device.isLikelyPrinter) ?? devices[0];
+      setSelectedPrinter(printer);
+      setPhase('sending');
+
+      await printUsbReceipt(printer.deviceId, {
+        photoBase64s: printJob.photoBase64s,
+        columns: selectedLayout.columns,
+        eventName: settings.eventName,
+        footer: settings.receiptFooter,
+        copies: requestedCopies,
+        tone: selectedTone,
+      });
+      setPhase('complete');
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+      setPhase('error');
+    }
+  }, [
+    printJob,
+    requestedCopies,
+    selectedLayout.columns,
+    settings.eventName,
+    settings.receiptFooter,
+    selectedTone,
+  ]);
 
   useEffect(() => {
-    if (isComplete) {
+    if (didStartAutomatically.current) {
       return;
     }
 
-    const timer = setTimeout(() => {
-      setActiveStep((currentStep) => currentStep + 1);
-    }, activeStep === 2 ? 1800 : 900);
+    didStartAutomatically.current = true;
+    void startTestPrint();
+  }, [startTestPrint]);
 
-    return () => clearTimeout(timer);
-  }, [activeStep, isComplete]);
+  const activeStep = phase === 'detecting' ? 0 : phase === 'sending' ? 1 : PRINTING_STEPS.length;
 
   return (
     <ScrollView
@@ -54,16 +138,22 @@ export default function PrintingScreen() {
           <AnimatedPrinter complete={isComplete} />
           <View style={styles.heading}>
             <Text selectable style={styles.title}>
-              {isComplete ? 'Print ready!' : 'Printing your photo...'}
+              {isComplete
+                ? 'Photo receipt sent!'
+                : phase === 'error'
+                  ? 'Printer not ready'
+                  : 'Testing USB printer...'}
             </Text>
             <Text selectable style={styles.subtitle}>
               {isComplete
                 ? `${requestedCopies} ${
                     requestedCopies === 1 ? 'copy is' : 'copies are'
-                  } ready.`
-                : `Preparing ${requestedCopies} ${
-                    requestedCopies === 1 ? 'copy' : 'copies'
-                  } of your receipt.`}
+                  } sent to ${selectedPrinter?.productName ?? 'the USB printer'}.`
+                : phase === 'error'
+                  ? 'Check the printer connection and try again.'
+                  : `Preparing ${requestedCopies} photo ${
+                      requestedCopies === 1 ? 'receipt' : 'receipts'
+                    }.`}
             </Text>
           </View>
         </Animated.View>
@@ -74,29 +164,76 @@ export default function PrintingScreen() {
               key={step}
               label={step}
               status={
-                index < activeStep ? 'complete' : index === activeStep ? 'printing' : 'pending'
+                isComplete || index < activeStep
+                  ? 'complete'
+                  : index === activeStep && phase !== 'error'
+                    ? 'printing'
+                    : 'pending'
               }
             />
           ))}
         </Animated.View>
 
+        {selectedPrinter && (
+          <View style={styles.deviceCard}>
+            <Text selectable style={styles.deviceName}>
+              {selectedPrinter.productName ??
+                selectedPrinter.manufacturerName ??
+                `USB device ${selectedPrinter.deviceId}`}
+            </Text>
+            <Text selectable style={styles.deviceDetails}>
+              USB {selectedPrinter.vendorId}:{selectedPrinter.productId}
+            </Text>
+          </View>
+        )}
+
+        {errorMessage && (
+          <View style={styles.errorCard}>
+            <IconSymbol name="exclamationmark.triangle.fill" size={24} color={COLORS.error} />
+            <Text selectable style={styles.errorText}>
+              {errorMessage}
+            </Text>
+          </View>
+        )}
+
         <Pressable
           accessibilityRole="button"
-          onPress={() => (isComplete ? router.dismissTo('/') : router.back())}
+          disabled={isBusy}
+          onPress={() => {
+            if (phase === 'error') {
+              void startTestPrint();
+              return;
+            }
+
+            router.dismissTo('/');
+          }}
           style={({ pressed }) => [
             styles.actionButton,
             isComplete && styles.completeButton,
+            isBusy && styles.disabledButton,
             pressed && styles.pressedButton,
           ]}>
           <IconSymbol
-            name={isComplete ? 'checkmark.circle.fill' : 'xmark'}
+            name={
+              isComplete
+                ? 'checkmark.circle.fill'
+                : phase === 'error'
+                  ? 'arrow.clockwise'
+                  : 'printer.fill'
+            }
             size={26}
             color={isComplete ? COLORS.onPrimary : COLORS.onSurfaceVariant}
           />
           <Text style={[styles.actionLabel, isComplete && styles.completeLabel]}>
-            {isComplete ? 'Done' : 'Cancel'}
+            {isComplete ? 'Done' : phase === 'error' ? 'Retry' : 'Printing...'}
           </Text>
         </Pressable>
+
+        {phase === 'error' && (
+          <Pressable accessibilityRole="button" onPress={() => router.back()}>
+            <Text style={styles.backLabel}>Back to preview</Text>
+          </Pressable>
+        )}
       </View>
     </ScrollView>
   );
@@ -153,6 +290,44 @@ const styles = StyleSheet.create({
     borderRadius: RADII.large,
     borderCurve: 'continuous',
   },
+  deviceCard: {
+    width: '100%',
+    maxWidth: 520,
+    alignItems: 'center',
+    gap: SPACING.xs,
+    padding: SPACING.sm,
+    backgroundColor: COLORS.surfaceContainerLowest,
+    borderWidth: 1,
+    borderColor: COLORS.outlineVariant,
+    borderRadius: RADII.medium,
+    borderCurve: 'continuous',
+  },
+  deviceName: {
+    ...TYPOGRAPHY.labelLarge,
+    color: COLORS.onSurface,
+    textAlign: 'center',
+  },
+  deviceDetails: {
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.onSurfaceVariant,
+    textAlign: 'center',
+  },
+  errorCard: {
+    width: '100%',
+    maxWidth: 520,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: SPACING.sm,
+    padding: SPACING.sm,
+    backgroundColor: COLORS.errorContainer,
+    borderRadius: RADII.medium,
+    borderCurve: 'continuous',
+  },
+  errorText: {
+    ...TYPOGRAPHY.bodyMedium,
+    flex: 1,
+    color: COLORS.onErrorContainer,
+  },
   actionButton: {
     minWidth: 180,
     minHeight: 72,
@@ -172,11 +347,18 @@ const styles = StyleSheet.create({
     opacity: 0.76,
     transform: [{ scale: 0.98 }],
   },
+  disabledButton: {
+    opacity: 0.62,
+  },
   actionLabel: {
     ...TYPOGRAPHY.buttonText,
     color: COLORS.onSurfaceVariant,
   },
   completeLabel: {
     color: COLORS.onPrimary,
+  },
+  backLabel: {
+    ...TYPOGRAPHY.labelLarge,
+    color: COLORS.primary,
   },
 });

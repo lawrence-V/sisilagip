@@ -1,5 +1,15 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { Alert, ScrollView, Share, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import { useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppHeader } from '@/components/AppHeader';
@@ -18,6 +28,17 @@ import {
   TYPOGRAPHY,
 } from '@/constants/theme';
 import { useAppSettings } from '@/hooks/useAppSettings';
+import type { UsbPrintTone } from '@/types/UsbPrinter';
+
+const PRINT_TONES: ReadonlyArray<{
+  value: UsbPrintTone;
+  label: string;
+  description: string;
+}> = [
+  { value: 'light', label: 'Light', description: 'Dithered detail with moderate darkness' },
+  { value: 'balanced', label: 'Balanced', description: 'Darker Floyd–Steinberg photo detail' },
+  { value: 'contrast', label: 'Sharp', description: 'High-contrast solid black and white' },
+];
 
 function parsePhotoUris(serializedPhotoUris: string | undefined) {
   if (!serializedPhotoUris) {
@@ -51,12 +72,14 @@ function formatReceiptDate() {
 }
 
 export default function PhotoPreviewScreen() {
-  const { layoutId, photoUri, photoUris } = useLocalSearchParams<{
+  const { layoutId, photoUri, photoUris, printJobId } = useLocalSearchParams<{
     layoutId?: string | string[];
     photoUri?: string | string[];
     photoUris?: string | string[];
+    printJobId?: string | string[];
   }>();
   const [settings] = useAppSettings();
+  const [printTone, setPrintTone] = useState<UsbPrintTone>('balanced');
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
@@ -65,6 +88,7 @@ export default function PhotoPreviewScreen() {
   const legacyPhotoUri = Array.isArray(photoUri) ? photoUri[0] : photoUri;
   const serializedPhotoUris = Array.isArray(photoUris) ? photoUris[0] : photoUris;
   const parsedPhotoUris = parsePhotoUris(serializedPhotoUris);
+  const selectedPrintJobId = Array.isArray(printJobId) ? printJobId[0] : printJobId;
   const capturedPhotoUris =
     parsedPhotoUris.length > 0 ? parsedPhotoUris : legacyPhotoUri ? [legacyPhotoUri] : [];
 
@@ -93,7 +117,13 @@ export default function PhotoPreviewScreen() {
   const startPrinting = () => {
     router.push({
       pathname: '/printing',
-      params: { copies: String(settings.printCopies) },
+      params: {
+        copies: String(settings.printCopies),
+        layoutId: selectedLayout.id,
+        photoUris: JSON.stringify(capturedPhotoUris),
+        printJobId: selectedPrintJobId,
+        tone: printTone,
+      },
     });
   };
 
@@ -196,6 +226,38 @@ export default function PhotoPreviewScreen() {
           </View>
 
           <View style={styles.actions}>
+            <View style={styles.toneSection}>
+              <Text selectable style={styles.toneTitle}>
+                Photo print tone
+              </Text>
+              <View style={styles.toneOptions}>
+                {PRINT_TONES.map((option) => {
+                  const isSelected = option.value === printTone;
+
+                  return (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isSelected }}
+                      key={option.value}
+                      onPress={() => setPrintTone(option.value)}
+                      style={({ pressed }) => [
+                        styles.toneOption,
+                        isSelected && styles.toneOptionSelected,
+                        pressed && styles.toneOptionPressed,
+                      ]}>
+                      <Text
+                        style={[
+                          styles.toneOptionLabel,
+                          isSelected && styles.toneOptionLabelSelected,
+                        ]}>
+                        {option.label}
+                      </Text>
+                      <Text style={styles.toneOptionDescription}>{option.description}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
             <PreviewActionButton
               icon="pencil"
               label="Edit Details"
@@ -363,6 +425,55 @@ const styles = StyleSheet.create({
   },
   actions: {
     gap: SPACING.sm,
+  },
+  toneSection: {
+    gap: SPACING.sm,
+    padding: SPACING.sm,
+    backgroundColor: COLORS.surfaceContainerLow,
+    borderRadius: RADII.large,
+    borderCurve: 'continuous',
+  },
+  toneTitle: {
+    ...TYPOGRAPHY.labelLarge,
+    color: COLORS.onSurface,
+  },
+  toneOptions: {
+    flexDirection: 'row',
+    gap: SPACING.xs,
+  },
+  toneOption: {
+    flex: 1,
+    minHeight: 78,
+    justifyContent: 'center',
+    gap: 2,
+    paddingHorizontal: SPACING.xs,
+    backgroundColor: COLORS.surfaceContainerLowest,
+    borderWidth: 2,
+    borderColor: COLORS.transparent,
+    borderRadius: RADII.medium,
+    borderCurve: 'continuous',
+  },
+  toneOptionSelected: {
+    backgroundColor: COLORS.primaryFixed,
+    borderColor: COLORS.primary,
+  },
+  toneOptionPressed: {
+    opacity: 0.72,
+  },
+  toneOptionLabel: {
+    ...TYPOGRAPHY.labelLarge,
+    color: COLORS.onSurface,
+    textAlign: 'center',
+  },
+  toneOptionLabelSelected: {
+    color: COLORS.onPrimaryContainer,
+  },
+  toneOptionDescription: {
+    color: COLORS.onSurfaceVariant,
+    fontFamily: FONT_FAMILIES.regular,
+    fontSize: 12,
+    lineHeight: 16,
+    textAlign: 'center',
   },
   infoCard: {
     flexDirection: 'row',

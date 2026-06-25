@@ -1,0 +1,22 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /Users/lawrencevaldez/Personal/sisilagip/modules/usb-thermal-printer/android/src/main/AndroidManifest.xml:1:1-5:12
+INJECTED from /Users/lawrencevaldez/Personal/sisilagip/modules/usb-thermal-printer/android/src/main/AndroidManifest.xml:1:1-5:12
+	package
+		INJECTED from /Users/lawrencevaldez/Personal/sisilagip/modules/usb-thermal-printer/android/src/main/AndroidManifest.xml
+	xmlns:android
+		ADDED from /Users/lawrencevaldez/Personal/sisilagip/modules/usb-thermal-printer/android/src/main/AndroidManifest.xml:1:11-69
+uses-feature#android.hardware.usb.host
+ADDED from /Users/lawrencevaldez/Personal/sisilagip/modules/usb-thermal-printer/android/src/main/AndroidManifest.xml:2:3-4:32
+	android:required
+		ADDED from /Users/lawrencevaldez/Personal/sisilagip/modules/usb-thermal-printer/android/src/main/AndroidManifest.xml:4:5-29
+	android:name
+		ADDED from /Users/lawrencevaldez/Personal/sisilagip/modules/usb-thermal-printer/android/src/main/AndroidManifest.xml:3:5-45
+uses-sdk
+INJECTED from /Users/lawrencevaldez/Personal/sisilagip/modules/usb-thermal-printer/android/src/main/AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from /Users/lawrencevaldez/Personal/sisilagip/modules/usb-thermal-printer/android/src/main/AndroidManifest.xml
+INJECTED from /Users/lawrencevaldez/Personal/sisilagip/modules/usb-thermal-printer/android/src/main/AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from /Users/lawrencevaldez/Personal/sisilagip/modules/usb-thermal-printer/android/src/main/AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from /Users/lawrencevaldez/Personal/sisilagip/modules/usb-thermal-printer/android/src/main/AndroidManifest.xml

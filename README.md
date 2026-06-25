@@ -52,3 +52,17 @@ Join our community of developers creating universal apps.
 # sisilagip
 
 # SisiLagip 📸 SisiLagip is an offline photo booth app built for Android tablets. It lets you take photos, pick a fun template, and instantly print them as black-and-white receipt-style photos using a USB thermal printer. No internet needed. Just snap, pick a design, and print.
+
+## Test a USB thermal printer
+
+Direct USB access uses the local Android module in
+`modules/usb-thermal-printer`, so it does not work in Expo Go.
+
+1. Install the native Android build with `npm run android`.
+2. Connect an ESC/POS-compatible thermal printer to the Android device using
+   USB OTG.
+3. Open a photo preview and press **Print This!**.
+4. Allow the Android USB permission prompt.
+
+The app composes the selected photo layout as a 384-dot black-and-white
+receipt, sends it with ESC/POS raster commands, and then cuts the paper.

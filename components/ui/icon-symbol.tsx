@@ -31,6 +31,7 @@ const MAPPING = {
   'square.and.arrow.up': 'share',
   pencil: 'edit',
   'info.circle': 'info-outline',
+  'exclamationmark.triangle.fill': 'warning',
   xmark: 'close',
 } as IconMapping;
 
