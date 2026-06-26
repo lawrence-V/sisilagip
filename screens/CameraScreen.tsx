@@ -1,4 +1,5 @@
 import { CameraType, CameraView, useCameraPermissions } from 'expo-camera';
+import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
@@ -15,6 +16,11 @@ import { useAppSettings } from '@/hooks/useAppSettings';
 import { createPhotoPrintJob } from '@/services/photoPrintJobService';
 
 const COUNTDOWN_SECONDS = [3, 2, 1] as const;
+
+type PendingPhoto = {
+  base64: string;
+  uri: string;
+};
 
 function wait(milliseconds: number) {
   return new Promise<void>((resolve) => {
@@ -39,6 +45,7 @@ export default function CameraScreen() {
   const [countdown, setCountdown] = useState<number | null>(null);
   const [capturedPhotoUris, setCapturedPhotoUris] = useState<string[]>([]);
   const [capturedPhotoBase64s, setCapturedPhotoBase64s] = useState<string[]>([]);
+  const [pendingPhoto, setPendingPhoto] = useState<PendingPhoto | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const isTablet = width >= 768;
   const selectedLayoutId = Array.isArray(layoutId) ? layoutId[0] : layoutId;
@@ -66,8 +73,44 @@ export default function CameraScreen() {
     setFlashEnabled((currentValue) => !currentValue);
   };
 
+  const savePhoto = (photo: PendingPhoto) => {
+    const nextPhotoUris = [...capturedPhotoUris, photo.uri];
+    const nextPhotoBase64s = [...capturedPhotoBase64s, photo.base64];
+
+    if (nextPhotoUris.length >= selectedLayout.photoCount) {
+      const printJobId = createPhotoPrintJob(nextPhotoBase64s);
+      router.push({
+        pathname: '/preview',
+        params: {
+          layoutId: selectedLayout.id,
+          photoUris: JSON.stringify(nextPhotoUris),
+          printJobId,
+        },
+      });
+      return;
+    }
+
+    setCapturedPhotoUris(nextPhotoUris);
+    setCapturedPhotoBase64s(nextPhotoBase64s);
+  };
+
+  const acceptPendingPhoto = async () => {
+    if (!pendingPhoto) {
+      return;
+    }
+
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    savePhoto(pendingPhoto);
+    setPendingPhoto(null);
+  };
+
+  const retakePendingPhoto = async () => {
+    await Haptics.selectionAsync();
+    setPendingPhoto(null);
+  };
+
   const takePhoto = async () => {
-    if (!cameraRef.current || !cameraReady || isCapturing) {
+    if (!cameraRef.current || !cameraReady || isCapturing || pendingPhoto) {
       return;
     }
 
@@ -90,23 +133,16 @@ export default function CameraScreen() {
         throw new Error('The camera did not return printable image data.');
       }
 
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const nextPhotoUris = [...capturedPhotoUris, photo.uri];
-      const nextPhotoBase64s = [...capturedPhotoBase64s, photo.base64];
+      const capturedPhoto = {
+        base64: photo.base64,
+        uri: photo.uri,
+      };
 
-      if (nextPhotoUris.length >= selectedLayout.photoCount) {
-        const printJobId = createPhotoPrintJob(nextPhotoBase64s);
-        router.push({
-          pathname: '/preview',
-          params: {
-            layoutId: selectedLayout.id,
-            photoUris: JSON.stringify(nextPhotoUris),
-            printJobId,
-          },
-        });
+      if (selectedLayout.photoCount > 1) {
+        setPendingPhoto(capturedPhoto);
       } else {
-        setCapturedPhotoUris(nextPhotoUris);
-        setCapturedPhotoBase64s(nextPhotoBase64s);
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        savePhoto(capturedPhoto);
       }
     } finally {
       setIsCapturing(false);
@@ -230,7 +266,7 @@ export default function CameraScreen() {
         </View>
 
         <CameraShutterButton
-          disabled={!cameraReady || isCapturing}
+          disabled={!cameraReady || isCapturing || pendingPhoto !== null}
           label={`PHOTO ${nextPhotoNumber} OF ${selectedLayout.photoCount}`}
           onPress={takePhoto}
         />
@@ -240,6 +276,50 @@ export default function CameraScreen() {
           {selectedLayout.photoCount - capturedPhotoUris.length === 1 ? 'photo' : 'photos'} left
         </Text>
       </View>
+
+      {pendingPhoto && (
+        <View style={styles.reviewOverlay}>
+          <View style={[styles.reviewCard, !isTablet && styles.mobileReviewCard]}>
+            <View style={styles.reviewHeading}>
+              <Text selectable style={styles.reviewTitle}>
+                Check photo {nextPhotoNumber}
+              </Text>
+              <Text selectable style={styles.reviewDescription}>
+                Use this photo or retake it before continuing to the next shot.
+              </Text>
+            </View>
+
+            <Image
+              contentFit="contain"
+              source={{ uri: pendingPhoto.uri }}
+              style={styles.reviewImage}
+            />
+
+            <View style={styles.reviewActions}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => void retakePendingPhoto()}
+                style={({ pressed }) => [
+                  styles.reviewButton,
+                  styles.retakeButton,
+                  pressed && styles.reviewButtonPressed,
+                ]}>
+                <Text style={styles.retakeButtonLabel}>Retake</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => void acceptPendingPhoto()}
+                style={({ pressed }) => [
+                  styles.reviewButton,
+                  styles.usePhotoButton,
+                  pressed && styles.reviewButtonPressed,
+                ]}>
+                <Text style={styles.usePhotoButtonLabel}>Use Photo</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -413,5 +493,81 @@ const styles = StyleSheet.create({
     minWidth: 120,
     color: COLORS.onSurfaceVariant,
     textAlign: 'center',
+  },
+  reviewOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: SPACING.lg,
+    backgroundColor: COLORS.cameraOverlay,
+    zIndex: 10,
+  },
+  reviewCard: {
+    width: '76%',
+    maxWidth: 900,
+    height: '88%',
+    gap: SPACING.md,
+    padding: SPACING.lg,
+    backgroundColor: COLORS.surfaceContainerLowest,
+    borderRadius: RADII.extraLarge,
+    borderCurve: 'continuous',
+  },
+  mobileReviewCard: {
+    width: '100%',
+    height: '92%',
+    padding: SPACING.md,
+  },
+  reviewHeading: {
+    alignItems: 'center',
+    gap: SPACING.xs,
+  },
+  reviewTitle: {
+    ...TYPOGRAPHY.headlineMedium,
+    color: COLORS.onSurface,
+    textAlign: 'center',
+  },
+  reviewDescription: {
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.onSurfaceVariant,
+    textAlign: 'center',
+  },
+  reviewImage: {
+    flex: 1,
+    width: '100%',
+    backgroundColor: COLORS.inverseSurface,
+    borderRadius: RADII.large,
+    borderCurve: 'continuous',
+  },
+  reviewActions: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  reviewButton: {
+    minHeight: 60,
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADII.full,
+  },
+  retakeButton: {
+    backgroundColor: COLORS.surfaceContainerHigh,
+    borderWidth: 2,
+    borderColor: COLORS.outlineVariant,
+  },
+  usePhotoButton: {
+    backgroundColor: COLORS.primary,
+  },
+  reviewButtonPressed: {
+    opacity: 0.76,
+    transform: [{ scale: 0.98 }],
+  },
+  retakeButtonLabel: {
+    ...TYPOGRAPHY.buttonText,
+    color: COLORS.onSurface,
+  },
+  usePhotoButtonLabel: {
+    ...TYPOGRAPHY.buttonText,
+    color: COLORS.onPrimary,
   },
 });

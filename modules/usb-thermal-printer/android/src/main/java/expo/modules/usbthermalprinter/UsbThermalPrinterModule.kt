@@ -21,6 +21,7 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
 import android.media.ExifInterface
+import android.net.Uri
 import android.os.Build
 import android.util.Base64
 import expo.modules.kotlin.Promise
@@ -88,6 +89,58 @@ class UsbThermalPrinterModule : Module() {
           "hasPermission" to usbManager.hasPermission(device),
           "isLikelyPrinter" to deviceHasPrinterInterface(device)
         )
+      }
+    }
+
+    AsyncFunction("generateReceiptPreviewAsync") { options: Map<String, Any> ->
+      val photoBase64s = (options["photoBase64s"] as? List<*>)
+        ?.filterIsInstance<String>()
+        .orEmpty()
+      if (photoBase64s.isEmpty()) {
+        throw IllegalStateException("No captured photos were provided for preview.")
+      }
+
+      val requestedColumns = (options["columns"] as? Number)?.toInt() ?: 1
+      val tone = options["tone"] as? String ?: "auto"
+      val eventName = options["eventName"] as? String ?: ""
+      val footer = options["footer"] as? String ?: ""
+      val requestedPrinterWidth = (options["printerWidth"] as? Number)?.toInt()
+      val printerWidth = if (requestedPrinterWidth == 512) 512 else 576
+      val largePhotos = options["largePhotos"] as? Boolean ?: false
+      val columns = if (largePhotos || tone == "group") {
+        1
+      } else {
+        requestedColumns.coerceIn(1, 3)
+      }
+      val receiptBitmap = buildReceiptBitmap(
+        photoBase64s,
+        columns,
+        eventName,
+        footer,
+        printerWidth,
+        tone
+      )
+      val previewBitmap = Bitmap.createBitmap(
+        receiptBitmap.width,
+        receiptBitmap.height,
+        Bitmap.Config.ARGB_8888
+      )
+
+      try {
+        bitmapToEscPosBitImage(receiptBitmap, tone, previewBitmap)
+        val previewFile = File(
+          context.cacheDir,
+          "thermal-preview-${System.currentTimeMillis()}-${tone}-${printerWidth}.png"
+        )
+        FileOutputStream(previewFile).use { output ->
+          if (!previewBitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+            throw IllegalStateException("Could not create the thermal print preview.")
+          }
+        }
+        Uri.fromFile(previewFile).toString()
+      } finally {
+        receiptBitmap.recycle()
+        previewBitmap.recycle()
       }
     }
 
@@ -493,19 +546,27 @@ class UsbThermalPrinterModule : Module() {
         (top + cellHeight).toFloat()
       )
       val photo = decodePhoto(photoBase64)
-      val groupPhoto = if (tone == "group") cropAndEnlargeGroup(photo) else photo
-      val processedPhoto = preprocessPhotoWithOpenCv(groupPhoto, tone == "face")
+      val framedPhoto = cropAndEnlargeFaces(
+        photo,
+        tone == "group",
+        destination.width() / destination.height()
+      )
+      val processedPhoto = preprocessPhotoWithOpenCv(framedPhoto, tone == "face")
       drawCenterCrop(canvas, processedPhoto, destination, imagePaint)
       canvas.drawRect(destination, borderPaint)
       processedPhoto.recycle()
-      if (groupPhoto !== photo) {
-        groupPhoto.recycle()
+      if (framedPhoto !== photo) {
+        framedPhoto.recycle()
       }
       photo.recycle()
     }
   }
 
-  private fun cropAndEnlargeGroup(bitmap: Bitmap): Bitmap {
+  private fun cropAndEnlargeFaces(
+    bitmap: Bitmap,
+    forceGroupCrop: Boolean,
+    targetAspectRatio: Float
+  ): Bitmap {
     ensureOpenCvReady()
     val rgba = Mat()
     val grayscale = Mat()
@@ -529,6 +590,20 @@ class UsbThermalPrinterModule : Module() {
         return bitmap
       }
 
+      val largestFace = detectedFaces.maxBy { it.width * it.height }
+      val largestFaceRatio = largestFace.height.toDouble() / bitmap.height
+      val isGroup = detectedFaces.size > 1
+
+      // Smart zoom is applied to every print profile only when faces are too
+      // small to retain detail on a 203-DPI thermal printer. Close subjects stay
+      // untouched. Group Clear forces framing even when faces are moderately sized.
+      val shouldZoom = forceGroupCrop ||
+        (isGroup && largestFaceRatio < 0.15) ||
+        (!isGroup && largestFaceRatio < 0.17)
+      if (!shouldZoom) {
+        return bitmap
+      }
+
       val faceLeft = detectedFaces.minOf { it.x }
       val faceTop = detectedFaces.minOf { it.y }
       val faceRight = detectedFaces.maxOf { it.x + it.width }
@@ -536,14 +611,38 @@ class UsbThermalPrinterModule : Module() {
       val groupWidth = faceRight - faceLeft
       val averageFaceHeight = detectedFaces.sumOf { it.height }.toDouble() / detectedFaces.size
 
-      // Keep shoulders and some context, but remove distant empty background.
-      val horizontalPadding = maxOf(groupWidth * 0.18, averageFaceHeight * 0.65).toInt()
-      val topPadding = (averageFaceHeight * 0.55).toInt()
-      val bottomPadding = (averageFaceHeight * 2.35).toInt()
-      val left = maxOf(0, faceLeft - horizontalPadding)
-      val top = maxOf(0, faceTop - topPadding)
-      val right = minOf(bitmap.width, faceRight + horizontalPadding)
-      val bottom = minOf(bitmap.height, faceBottom + bottomPadding)
+      // Single-person framing keeps the full head and shoulders. Multi-person
+      // framing uses the combined face bounds with enough room for outer heads.
+      val horizontalPadding = if (isGroup) {
+        maxOf(groupWidth * 0.28, averageFaceHeight * 0.95).toInt()
+      } else {
+        (averageFaceHeight * 1.35).toInt()
+      }
+      val topPadding = (averageFaceHeight * if (isGroup) 0.95 else 1.20).toInt()
+      val bottomPadding = (averageFaceHeight * if (isGroup) 2.90 else 2.75).toInt()
+      var left = maxOf(0, faceLeft - horizontalPadding)
+      var top = maxOf(0, faceTop - topPadding)
+      var right = minOf(bitmap.width, faceRight + horizontalPadding)
+      var bottom = minOf(bitmap.height, faceBottom + bottomPadding)
+
+      // Match the print cell aspect ratio by expanding the crop, never by
+      // trimming it. This prevents the later center-crop step from cutting hair.
+      val currentWidth = right - left
+      val currentHeight = bottom - top
+      val currentAspectRatio = currentWidth.toFloat() / currentHeight
+      if (currentAspectRatio < targetAspectRatio) {
+        val desiredWidth = minOf(bitmap.width, (currentHeight * targetAspectRatio).toInt())
+        val extraWidth = desiredWidth - currentWidth
+        left = maxOf(0, left - (extraWidth / 2))
+        right = minOf(bitmap.width, left + desiredWidth)
+        left = maxOf(0, right - desiredWidth)
+      } else if (currentAspectRatio > targetAspectRatio) {
+        val desiredHeight = minOf(bitmap.height, (currentWidth / targetAspectRatio).toInt())
+        val extraHeight = desiredHeight - currentHeight
+        top = maxOf(0, top - (extraHeight / 2))
+        bottom = minOf(bitmap.height, top + desiredHeight)
+        top = maxOf(0, bottom - desiredHeight)
+      }
 
       val cropWidth = right - left
       val cropHeight = bottom - top
@@ -558,19 +657,28 @@ class UsbThermalPrinterModule : Module() {
       val cropped = rgba.submat(org.opencv.core.Rect(left, top, cropWidth, cropHeight))
       val enlarged = Mat()
       return try {
-        // Restore a high-resolution working image so later face processing and
-        // thermal downsampling have more edge information to preserve.
+        // Preserve aspect ratio while restoring a high-resolution working image.
+        // Stretching the crop to the original frame would distort faces.
+        val enlargementScale = minOf(
+          3.0,
+          maxOf(
+            bitmap.width.toDouble() / cropWidth,
+            bitmap.height.toDouble() / cropHeight
+          )
+        )
+        val targetWidth = maxOf(cropWidth, (cropWidth * enlargementScale).toInt())
+        val targetHeight = maxOf(cropHeight, (cropHeight * enlargementScale).toInt())
         Imgproc.resize(
           cropped,
           enlarged,
-          Size(bitmap.width.toDouble(), bitmap.height.toDouble()),
+          Size(targetWidth.toDouble(), targetHeight.toDouble()),
           0.0,
           0.0,
           Imgproc.INTER_LANCZOS4
         )
         Bitmap.createBitmap(
-          bitmap.width,
-          bitmap.height,
+          targetWidth,
+          targetHeight,
           Bitmap.Config.ARGB_8888
         ).also { result ->
           Utils.matToBitmap(enlarged, result)
@@ -941,7 +1049,11 @@ class UsbThermalPrinterModule : Module() {
     }
   }
 
-  private fun bitmapToEscPosBitImage(bitmap: Bitmap, tone: String): ByteArray {
+  private fun bitmapToEscPosBitImage(
+    bitmap: Bitmap,
+    tone: String,
+    previewBitmap: Bitmap? = null
+  ): ByteArray {
     val pixels = IntArray(bitmap.width * bitmap.height)
     bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
     val output = ByteArrayOutputStream()
@@ -1084,6 +1196,21 @@ class UsbThermalPrinterModule : Module() {
         bitmap.height,
         threshold,
         faceMask
+      )
+    }
+
+    previewBitmap?.let { target ->
+      val previewPixels = IntArray(blackPixels.size) { index ->
+        if (blackPixels[index]) Color.BLACK else Color.WHITE
+      }
+      target.setPixels(
+        previewPixels,
+        0,
+        bitmap.width,
+        0,
+        0,
+        bitmap.width,
+        bitmap.height
       )
     }
 

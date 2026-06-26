@@ -12,6 +12,15 @@ const UNSUPPORTED_MESSAGE =
 
 type UsbThermalPrinterNativeModule = {
   listDevicesAsync(): Promise<UsbPrinterDevice[]>;
+  generateReceiptPreviewAsync(options: {
+    photoBase64s: string[];
+    columns: number;
+    eventName: string;
+    footer: string;
+    tone: string;
+    printerWidth: number;
+    largePhotos: boolean;
+  }): Promise<string>;
   printReceiptAsync(
     deviceId: number,
     options: {
@@ -46,6 +55,20 @@ function getNativeModule(): UsbThermalPrinterNativeModule {
 
 export async function getUsbPrinterDevices(): Promise<UsbPrinterDevice[]> {
   return getNativeModule().listDevicesAsync();
+}
+
+export async function generateUsbReceiptPreview(
+  options: Omit<UsbReceiptPrintOptions, 'copies'>,
+): Promise<string> {
+  return getNativeModule().generateReceiptPreviewAsync({
+    photoBase64s: options.photoBase64s,
+    columns: options.columns,
+    eventName: options.eventName,
+    footer: options.footer,
+    tone: options.tone,
+    printerWidth: options.printerWidth,
+    largePhotos: options.largePhotos,
+  });
 }
 
 export async function printUsbReceipt(

@@ -8,6 +8,15 @@ import type {
 
 declare class UsbThermalPrinterModule extends NativeModule<Record<never, never>> {
   listDevicesAsync(): Promise<UsbPrinterDevice[]>;
+  generateReceiptPreviewAsync(options: {
+    photoBase64s: string[];
+    columns: number;
+    eventName: string;
+    footer: string;
+    tone: string;
+    printerWidth: number;
+    largePhotos: boolean;
+  }): Promise<string>;
   printReceiptAsync(
     deviceId: number,
     options: {

@@ -1,5 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { Image } from 'expo-image';
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
@@ -9,7 +11,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppHeader } from '@/components/AppHeader';
@@ -28,6 +30,8 @@ import {
   TYPOGRAPHY,
 } from '@/constants/theme';
 import { useAppSettings } from '@/hooks/useAppSettings';
+import { getPhotoPrintJob } from '@/services/photoPrintJobService';
+import { generateUsbReceiptPreview } from '@/services/usbPrinterService';
 import type { UsbPrinterWidth, UsbPrintTone } from '@/types/UsbPrinter';
 
 const PRINT_TONES: ReadonlyArray<{
@@ -86,6 +90,10 @@ export default function PhotoPreviewScreen() {
   const [printTone, setPrintTone] = useState<UsbPrintTone>('auto');
   const [printerWidth, setPrinterWidth] = useState<UsbPrinterWidth>(576);
   const [largePhotos, setLargePhotos] = useState(false);
+  const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [processedPreviewUri, setProcessedPreviewUri] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
@@ -95,8 +103,60 @@ export default function PhotoPreviewScreen() {
   const serializedPhotoUris = Array.isArray(photoUris) ? photoUris[0] : photoUris;
   const parsedPhotoUris = parsePhotoUris(serializedPhotoUris);
   const selectedPrintJobId = Array.isArray(printJobId) ? printJobId[0] : printJobId;
+  const printJob = getPhotoPrintJob(selectedPrintJobId);
   const capturedPhotoUris =
     parsedPhotoUris.length > 0 ? parsedPhotoUris : legacyPhotoUri ? [legacyPhotoUri] : [];
+
+  useEffect(() => {
+    if (!showPrintPreview || !printJob || printTone === 'calibration') {
+      return;
+    }
+
+    let isCurrent = true;
+    setIsGeneratingPreview(true);
+    setProcessedPreviewUri(null);
+    setPreviewError(null);
+
+    void generateUsbReceiptPreview({
+      photoBase64s: printJob.photoBase64s,
+      columns: selectedLayout.columns,
+      eventName: settings.eventName,
+      footer: settings.receiptFooter,
+      tone: printTone,
+      printerWidth,
+      largePhotos,
+    })
+      .then((uri) => {
+        if (isCurrent) {
+          setProcessedPreviewUri(uri);
+        }
+      })
+      .catch((error: unknown) => {
+        if (isCurrent) {
+          setPreviewError(
+            error instanceof Error ? error.message : 'Could not generate the print preview.',
+          );
+        }
+      })
+      .finally(() => {
+        if (isCurrent) {
+          setIsGeneratingPreview(false);
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [
+    largePhotos,
+    printJob,
+    printTone,
+    printerWidth,
+    selectedLayout.columns,
+    settings.eventName,
+    settings.receiptFooter,
+    showPrintPreview,
+  ]);
 
   const openCamera = () => {
     router.replace({
@@ -177,7 +237,55 @@ export default function PhotoPreviewScreen() {
       <AppHeader />
 
       <View style={[styles.content, !isTablet && styles.mobileContent]}>
-        <View style={styles.receipt}>
+        <View style={styles.previewColumn}>
+          <View style={styles.previewToggle}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: !showPrintPreview }}
+              onPress={() => setShowPrintPreview(false)}
+              style={[
+                styles.previewToggleOption,
+                !showPrintPreview && styles.previewToggleOptionSelected,
+              ]}>
+              <Text style={styles.previewToggleLabel}>Original</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: showPrintPreview }}
+              onPress={() => setShowPrintPreview(true)}
+              style={[
+                styles.previewToggleOption,
+                showPrintPreview && styles.previewToggleOptionSelected,
+              ]}>
+              <Text style={styles.previewToggleLabel}>Print Preview</Text>
+            </Pressable>
+          </View>
+
+          {showPrintPreview ? (
+            <View style={[styles.receipt, styles.processedReceipt]}>
+              {isGeneratingPreview ? (
+                <View style={styles.previewLoading}>
+                  <ActivityIndicator color={COLORS.primary} size="large" />
+                  <Text selectable style={styles.previewStatusText}>
+                    Generating exact thermal preview…
+                  </Text>
+                </View>
+              ) : processedPreviewUri ? (
+                <Image
+                  contentFit="contain"
+                  source={{ uri: processedPreviewUri }}
+                  style={styles.processedReceiptImage}
+                />
+              ) : (
+                <View style={styles.previewLoading}>
+                  <Text selectable style={styles.previewErrorText}>
+                    {previewError ?? 'Print preview is unavailable.'}
+                  </Text>
+                </View>
+              )}
+            </View>
+          ) : (
+            <View style={styles.receipt}>
           <View style={styles.receiptHeader}>
             <Text
               selectable
@@ -220,6 +328,8 @@ export default function PhotoPreviewScreen() {
           </View>
 
           <ReceiptBarcode />
+            </View>
+          )}
         </View>
 
         <View style={styles.actionColumn}>
@@ -381,6 +491,32 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     justifyContent: 'flex-start',
   },
+  previewColumn: {
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  previewToggle: {
+    width: 390,
+    flexDirection: 'row',
+    gap: SPACING.xs,
+    padding: SPACING.xs,
+    backgroundColor: COLORS.surfaceContainerLow,
+    borderRadius: RADII.full,
+  },
+  previewToggleOption: {
+    flex: 1,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: RADII.full,
+  },
+  previewToggleOptionSelected: {
+    backgroundColor: COLORS.primaryFixed,
+  },
+  previewToggleLabel: {
+    ...TYPOGRAPHY.labelLarge,
+    color: COLORS.onSurface,
+  },
   receipt: {
     width: 390,
     minHeight: 720,
@@ -390,6 +526,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.surfaceContainerHigh,
     ...SHADOWS.receipt,
+  },
+  processedReceipt: {
+    padding: SPACING.sm,
+  },
+  processedReceiptImage: {
+    width: '100%',
+    height: 700,
+    backgroundColor: COLORS.surfaceContainerLowest,
+  },
+  previewLoading: {
+    minHeight: 680,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.sm,
+    padding: SPACING.lg,
+  },
+  previewStatusText: {
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.onSurfaceVariant,
+    textAlign: 'center',
+  },
+  previewErrorText: {
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.error,
+    textAlign: 'center',
   },
   receiptHeader: {
     alignItems: 'center',
